@@ -13,6 +13,8 @@ Once the files are there, go back to [README.md](README.md) and follow the main 
 - **Bastion IP or hostname** — from your demo environment (e.g. `192.168.1.50` or `bastion.sandbox.example.com`)
 - **Bastion username** — usually your demo user (e.g. `demo` or your Red Hat username)
 - **SSH access** — you can log in with `ssh user@bastion-ip`
+- **Podman** — to build images and talk to vCenter (often pre-installed, e.g. `5.6.0`)
+- **Ansible** — `ansible-playbook` is **not** always pre-installed; install with `sudo dnf install -y ansible-core` (see [Install Podman and Ansible](#2-install-podman-and-ansible) below)
 
 Replace these in the commands below:
 
@@ -142,24 +144,81 @@ pwd
 ls build-bootc-vms.yml credentials.env.example README.md
 ```
 
-### 2. Install tools (if missing)
+### 2. Install Podman and Ansible
+
+The playbook needs **both** tools on the bastion:
+
+| Tool | What it does in this playbook |
+|------|-------------------------------|
+| `podman` | Builds bootc disk images and runs `govc` against vCenter |
+| `ansible-playbook` | Runs `build-bootc-vms.yml` |
+
+#### Check what you already have
 
 ```bash
-ansible-playbook --version
 podman --version
+ansible-playbook --version
+which podman
+which ansible-playbook
 ```
 
-If Ansible is missing on RHEL/Fedora:
+Example of a ready bastion:
+
+```text
+podman version 5.6.0
+ansible-playbook [core 2.16.x]
+```
+
+If `podman --version` works (e.g. `5.6.0`) but `ansible-playbook` is missing, you only need to install Ansible — see below.
+
+#### Install Podman (if missing)
+
+Demo bastions usually ship with Podman already. If `podman: command not found`:
+
+```bash
+sudo dnf install -y podman
+```
+
+Verify:
+
+```bash
+podman --version
+sudo podman ps    # the playbook uses sudo for builds
+```
+
+#### Install Ansible / `ansible-playbook` (if missing)
+
+On RHEL and Fedora, the `ansible-playbook` command comes from the **`ansible-core`** package:
 
 ```bash
 sudo dnf install -y ansible-core
 ```
 
-Podman is usually pre-installed on the demo bastion. If not:
+Verify:
 
 ```bash
-sudo dnf install -y podman
+ansible-playbook --version
 ```
+
+You should see output like `ansible-playbook [core 2.x.x]`.
+
+**No `sudo`?** Install into your user account with pip instead:
+
+```bash
+python3 -m pip install --user ansible-core
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+ansible-playbook --version
+```
+
+**`dnf` can't find `ansible-core`?** Enable the standard repos first (RHEL demo VMs usually have these already):
+
+```bash
+sudo subscription-manager repos --enable=rhel-*-for-*-appstream-rpms 2>/dev/null || true
+sudo dnf install -y ansible-core
+```
+
+On Fedora, `ansible-core` is in the default repos — `sudo dnf install -y ansible-core` is enough.
 
 ### 3. Create your credentials file on the bastion
 
@@ -190,6 +249,17 @@ ansible-playbook build-bootc-vms.yml -e @credentials.env
 ---
 
 ## Common problems
+
+### `ansible-playbook: command not found`
+
+Install the Ansible CLI on the bastion:
+
+```bash
+sudo dnf install -y ansible-core
+ansible-playbook --version
+```
+
+If you used the pip method, make sure `~/.local/bin` is on your `PATH` (see [Install Podman and Ansible](#2-install-podman-and-ansible)).
 
 ### `Permission denied (publickey)`
 
