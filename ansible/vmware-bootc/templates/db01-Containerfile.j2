@@ -1,0 +1,23 @@
+# Use the official CentOS Stream 9 bootc base image
+FROM {{ centos_bootc_base }}
+
+# Ensure the systemd quadlet directory exists
+RUN mkdir -p /etc/containers/systemd/
+
+# Create the Quadlet file for the todo-db container
+RUN cat <<EOF > /etc/containers/systemd/todo-db.container
+[Unit]
+Description=Todo Database Container Service
+After=network-online.target
+Wants=network-online.target
+[Container]
+Image={{ todo_db_image }}
+ContainerName=todo-db
+HostName=todo-db
+PublishPort=5432:5432
+[Service]
+Restart=always
+TimeoutStartSec=900
+[Install]
+WantedBy=multi-user.target
+EOF

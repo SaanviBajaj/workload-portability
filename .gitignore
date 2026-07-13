@@ -1,0 +1,6 @@
+# Local credentials — never commit
+credentials.env
+ansible/vmware-bootc/credentials.env
+
+# macOS
+.DS_Store

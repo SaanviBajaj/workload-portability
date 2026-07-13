@@ -1,0 +1,339 @@
+---
+# Build bootable CentOS Stream 9 bootc images and deploy DB01 + WEB01 VMs to VMware.
+#
+# Run on the bastion VM:
+#   cd ansible/vmware-bootc
+#   ansible-playbook -i inventory.ini build-bootc-vms.yml
+#
+# Override credentials (recommended):
+#   ansible-playbook build-bootc-vms.yml -e @credentials.env
+#
+# Run only DB or WEB:
+#   ansible-playbook -i inventory.ini build-bootc-vms.yml --tags db01
+#   ansible-playbook -i inventory.ini build-bootc-vms.yml --tags web01
+
+- name: Build and deploy bootc todo DB01 and WEB01 VMs on VMware
+  hosts: bastion
+  gather_facts: true
+  become: "{{ podman_become }}"
+  vars:
+    db01_build_dir: "{{ work_base }}/db01"
+    web01_build_dir: "{{ work_base }}/web01"
+    db01_vmdk_upload: "{{ datastore_base }}/db01-disk1.vmdk"
+    db01_vmdk_final: "{{ datastore_base }}/db01/db01-disk1.vmdk"
+    web01_vmdk_upload: "{{ datastore_base }}/web01-disk1.vmdk"
+    web01_vmdk_final: "{{ datastore_base }}/web01/web01-disk1.vmdk"
+    govc_cmd: >-
+      podman run --rm --env-file {{ govc_env_path }}
+      docker.io/vmware/govc:latest /govc
+
+  tasks:
+    - name: Ensure build base directory exists
+      ansible.builtin.file:
+        path: "{{ work_base }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render govc environment file
+      ansible.builtin.template:
+        src: govc.env.j2
+        dest: "{{ govc_env_path }}"
+        mode: "0600"
+      become: false
+
+    # -------------------------------------------------------------------------
+    # DB01 — build bootc image, upload VMDK, create VM
+    # -------------------------------------------------------------------------
+    - name: Ensure DB01 build directory exists
+      ansible.builtin.file:
+        path: "{{ db01_build_dir }}/output"
+        state: directory
+        mode: "0755"
+      become: false
+      tags: [db01]
+
+    - name: Render DB01 Containerfile
+      ansible.builtin.template:
+        src: db01-Containerfile.j2
+        dest: "{{ db01_build_dir }}/Containerfile"
+        mode: "0644"
+      become: false
+      tags: [db01]
+
+    - name: Build DB01 bootc container image
+      ansible.builtin.command:
+        cmd: podman build -t {{ db01_bootc_tag }} .
+        chdir: "{{ db01_build_dir }}"
+      tags: [db01]
+
+    - name: Generate DB01 VMDK from bootc image
+      ansible.builtin.command:
+        cmd: >-
+          podman run
+          --rm
+          --privileged
+          --pull=newer
+          --security-opt label=type:unconfined_t
+          -v {{ db01_build_dir }}/output:/output
+          -v /var/lib/containers/storage:/var/lib/containers/storage
+          {{ bootc_image_builder }}
+          --type vmdk
+          localhost/{{ db01_bootc_tag }}
+      tags: [db01]
+
+    - name: Upload DB01 VMDK to datastore root
+      ansible.builtin.command:
+        cmd: >-
+          podman run --rm
+          --env-file {{ govc_env_path }}
+          -v {{ db01_build_dir }}/output:/output:z
+          {{ govc_image }}
+          /govc datastore.upload
+          /output/vmdk/disk.vmdk
+          {{ db01_vmdk_upload }}
+      tags: [db01]
+
+    - name: Move DB01 VMDK into db01 folder (clears VMFS lock)
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} datastore.mv {{ db01_vmdk_upload }} {{ db01_vmdk_final }}"
+      tags: [db01]
+
+    - name: Check whether DB01 VM already exists
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} vm.info {{ db01_vm_name }}"
+      register: db01_vm_info
+      failed_when: false
+      changed_when: false
+      tags: [db01]
+
+    - name: Create and power on DB01 VM
+      ansible.builtin.command:
+        cmd: >-
+          {{ govc_cmd }} vm.create
+          -c {{ vm_cpus }}
+          -m {{ vm_memory_mb }}
+          -net "{{ vm_network }}"
+          -folder "{{ vm_folder }}"
+          -disk "{{ db01_vmdk_final }}"
+          -disk.controller {{ vm_disk_controller }}
+          -g {{ vm_guest_id }}
+          -on=true
+          {{ db01_vm_name }}
+      when: db01_vm_info.rc != 0
+      tags: [db01]
+
+    - name: Wait for DB01 VM IP address
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ db01_vm_name }}"
+      register: db01_ip_result
+      retries: 30
+      delay: 10
+      until: db01_ip_result.stdout | length > 0
+      changed_when: false
+      tags: [db01, web01, configure]
+
+    - name: Set DB host from discovered DB01 IP
+      ansible.builtin.set_fact:
+        db_host: "{{ db01_ip_result.stdout | trim }}"
+      when: db_host | length == 0
+      tags: [db01, web01, configure]
+
+    # -------------------------------------------------------------------------
+    # WEB01 — build bootc image, upload VMDK, create VM
+    # -------------------------------------------------------------------------
+    - name: Ensure WEB01 build directory exists
+      ansible.builtin.file:
+        path: "{{ web01_build_dir }}/output"
+        state: directory
+        mode: "0755"
+      become: false
+      tags: [web01]
+
+    - name: Render WEB01 config.toml
+      ansible.builtin.template:
+        src: web01-config.toml.j2
+        dest: "{{ web01_build_dir }}/config.toml"
+        mode: "0644"
+      become: false
+      tags: [web01]
+
+    - name: Render WEB01 Containerfile
+      ansible.builtin.template:
+        src: web01-Containerfile.j2
+        dest: "{{ web01_build_dir }}/Containerfile"
+        mode: "0644"
+      become: false
+      tags: [web01]
+
+    - name: Build WEB01 bootc container image
+      ansible.builtin.command:
+        cmd: podman build -t {{ web01_bootc_tag }} .
+        chdir: "{{ web01_build_dir }}"
+      tags: [web01]
+
+    - name: Generate WEB01 VMDK from bootc image
+      ansible.builtin.command:
+        cmd: >-
+          podman run
+          --rm
+          --privileged
+          --pull=newer
+          --security-opt label=type:unconfined_t
+          -v {{ web01_build_dir }}/config.toml:/config.toml:ro
+          -v {{ web01_build_dir }}/output:/output
+          -v /var/lib/containers/storage:/var/lib/containers/storage
+          {{ bootc_image_builder }}
+          --type vmdk
+          --config /config.toml
+          localhost/{{ web01_bootc_tag }}
+      tags: [web01]
+
+    - name: Upload WEB01 VMDK to datastore root
+      ansible.builtin.command:
+        cmd: >-
+          podman run --rm
+          --env-file {{ govc_env_path }}
+          -v {{ web01_build_dir }}/output:/output:z
+          {{ govc_image }}
+          /govc datastore.upload
+          /output/vmdk/disk.vmdk
+          {{ web01_vmdk_upload }}
+      tags: [web01]
+
+    - name: Move WEB01 VMDK into web01 folder (clears VMFS lock)
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} datastore.mv {{ web01_vmdk_upload }} {{ web01_vmdk_final }}"
+      tags: [web01]
+
+    - name: Check whether WEB01 VM already exists
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} vm.info {{ web01_vm_name }}"
+      register: web01_vm_info
+      failed_when: false
+      changed_when: false
+      tags: [web01]
+
+    - name: Create and power on WEB01 VM
+      ansible.builtin.command:
+        cmd: >-
+          {{ govc_cmd }} vm.create
+          -c {{ vm_cpus }}
+          -m {{ vm_memory_mb }}
+          -net "{{ vm_network }}"
+          -folder "{{ vm_folder }}"
+          -disk "{{ web01_vmdk_final }}"
+          -disk.controller {{ vm_disk_controller }}
+          -g {{ vm_guest_id }}
+          -on=true
+          {{ web01_vm_name }}
+      when: web01_vm_info.rc != 0
+      tags: [web01]
+
+    - name: Wait for WEB01 VM IP address
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ web01_vm_name }}"
+      register: web01_ip_result
+      retries: 30
+      delay: 10
+      until: web01_ip_result.stdout | length > 0
+      changed_when: false
+      tags: [web01, configure]
+
+    - name: Register WEB01 host for post-deploy configuration
+      ansible.builtin.add_host:
+        name: web01_vm
+        ansible_host: "{{ web01_ip_result.stdout | trim }}"
+        ansible_user: "{{ web_ssh_user }}"
+        ansible_password: "{{ web_ssh_password }}"
+        ansible_become_password: "{{ web_ssh_password }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        web01_ip: "{{ web01_ip_result.stdout | trim }}"
+        db_host: "{{ db_host }}"
+        db_port: "{{ db_port }}"
+      tags: [web01, configure]
+
+- name: Configure WEB01 runtime (DB connection + port 80 forward)
+  hosts: web01_vm
+  gather_facts: false
+  vars:
+    override_dir: /etc/containers/systemd/todo-web.container.d
+    override_path: "{{ override_dir }}/override.conf"
+
+  tasks:
+    - name: Wait for SSH on WEB01
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        delay: 10
+        timeout: 600
+      tags: [configure]
+
+    - name: Ensure todo-web quadlet override directory exists
+      ansible.builtin.file:
+        path: "{{ override_dir }}"
+        state: directory
+        mode: "0755"
+      become: true
+      tags: [configure]
+
+    - name: Deploy todo-web DB environment override
+      ansible.builtin.template:
+        src: todo-web-override.conf.j2
+        dest: "{{ override_path }}"
+        mode: "0644"
+      become: true
+      tags: [configure]
+
+    - name: Reload systemd after quadlet override
+      ansible.builtin.systemd:
+        daemon_reload: true
+      become: true
+      tags: [configure]
+
+    - name: Restart todo-web service
+      ansible.builtin.systemd:
+        name: todo-web.service
+        state: restarted
+      become: true
+      tags: [configure]
+
+    - name: Check whether port 80 forward rule exists
+      ansible.builtin.command:
+        cmd: >-
+          firewall-cmd --query-forward-port=port=80:proto=tcp:toport=8080:toaddr={{ web01_ip }}
+      register: fw_forward_check
+      failed_when: false
+      changed_when: false
+      become: true
+      tags: [configure]
+
+    - name: Forward port 80 to local 8080
+      ansible.builtin.command:
+        cmd: >-
+          firewall-cmd --permanent
+          --add-forward-port=port=80:proto=tcp:toport=8080:toaddr={{ web01_ip }}
+      when: fw_forward_check.rc != 0
+      become: true
+      tags: [configure]
+
+    - name: Check whether masquerade is enabled
+      ansible.builtin.command:
+        cmd: firewall-cmd --query-masquerade
+      register: fw_masq_check
+      failed_when: false
+      changed_when: false
+      become: true
+      tags: [configure]
+
+    - name: Enable firewall masquerade
+      ansible.builtin.command:
+        cmd: firewall-cmd --permanent --add-masquerade
+      when: fw_masq_check.rc != 0
+      become: true
+      tags: [configure]
+
+    - name: Reload firewall
+      ansible.builtin.command:
+        cmd: firewall-cmd --reload
+      become: true
+      tags: [configure]

@@ -1,0 +1,31 @@
+FROM {{ centos_bootc_base }}
+
+# OS Hostname and SSH setup
+RUN echo "web01" > /etc/hostname
+RUN systemctl enable sshd
+RUN mkdir -p /etc/ssh/sshd_config.d/ && \
+    echo "PasswordAuthentication yes" > /etc/ssh/sshd_config.d/01-demo.conf
+
+# Quadlet systemd directory
+RUN mkdir -p /etc/containers/systemd/
+
+# Quadlet definition for todo-web
+RUN cat << 'EOF' > /etc/containers/systemd/todo-web.container
+[Unit]
+Description=Todo Web Container Service
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image={{ todo_web_image }}
+ContainerName=todo-web
+HostName=todo-web
+PublishPort=8080:8080
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
+EOF
