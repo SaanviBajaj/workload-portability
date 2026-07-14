@@ -9,8 +9,18 @@ if command -v qemu-img >/dev/null 2>&1; then
   exec qemu-img "$@"
 fi
 
+CONTAINER_ARGS=()
+for arg in "$@"; do
+  if [[ "${arg}" == "${BUILD_DIR}"* ]]; then
+    CONTAINER_ARGS+=("/work${arg#${BUILD_DIR}}")
+  else
+    CONTAINER_ARGS+=("${arg}")
+  fi
+done
+
 exec podman run --rm \
-  -v "${BUILD_DIR}:${BUILD_DIR}" \
-  -w "${BUILD_DIR}" \
+  --user 0:0 \
+  -v "${BUILD_DIR}:/work:z" \
+  -w /work \
   "${CONTAINER_IMAGE}" \
-  sh -ec "apk add --no-cache qemu-img >/dev/null 2>&1 && exec qemu-img $(printf '%q ' "$@")"
+  sh -ec "apk add --no-cache qemu-img >/dev/null 2>&1 && exec qemu-img $(printf '%q ' "${CONTAINER_ARGS[@]}")"
