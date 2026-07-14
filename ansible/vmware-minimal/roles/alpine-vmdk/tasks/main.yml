@@ -203,10 +203,13 @@
       loop: "{{ alpine_openrc_services + (alpine_web_openrc_services if alpine_role == 'web' else []) }}"
 
     - name: Generate Alpine initramfs
-      ansible.builtin.command:
-        cmd: >-
-          {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
-          chroot /mnt mkinitfs -F
+      ansible.builtin.shell: |
+        set -o pipefail
+        KERNEL_VER="$(ls {{ alpine_mnt }}/lib/modules | head -1)"
+        {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }} \
+          chroot /mnt mkinitfs "${KERNEL_VER}"
+      args:
+        executable: /bin/bash
 
     - name: Trim Alpine apk cache
       ansible.builtin.file:
