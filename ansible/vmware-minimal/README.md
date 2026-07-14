@@ -557,7 +557,8 @@ Common causes and fixes:
 | `Read-only file system` | Root disk not remounted rw | `git pull` and rebuild (OpenRC `root` service fix) |
 | `podman pull failed` | quay.io denied or no internet on VM | `git pull` and rebuild (images preloaded at build time) |
 | `container image missing from VMDK` | VMDK built without preloaded image | Rebuild with `build-minimal-vms.yml` |
-| `no space left on device` during `Load container image` | 600 MB disk too tight for chroot `podman load` (tar + image + temp) | `git pull` — build loads image on bastion disk, then copies Podman storage into the VMDK |
+| `no space left on device` during `Load container image` | 600 MB disk too tight for chroot `podman load` (tar + image + temp) | `git pull` — build bind-mounts the tar from bastion and uses bastion `/tmp` for scratch space |
+| `database configuration mismatch` / `podman-preload/libpod` | Podman storage copied from bastion retained wrong paths | `git pull` and rebuild — image is loaded inside the Alpine chroot so paths match `/var/lib/containers/storage` |
 
 On a running VM, try manually on the **todo-db console**:
 
