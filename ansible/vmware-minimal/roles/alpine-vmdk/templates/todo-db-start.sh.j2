@@ -9,8 +9,9 @@ LOG=/var/log/todo-db.start.log
     echo "ERROR: podman pull failed"
     exit 1
   fi
-  if ! podman run -d --replace --name todo-db \
-    -p 5432:5432 \
+  podman rm -f todo-db 2>/dev/null || true
+  if ! podman run -d --name todo-db \
+    --network host \
     {{ todo_db_image }}; then
     echo "ERROR: podman run failed"
     exit 1

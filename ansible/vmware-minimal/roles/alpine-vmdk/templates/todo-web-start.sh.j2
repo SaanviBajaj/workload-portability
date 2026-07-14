@@ -10,14 +10,18 @@ LOG=/var/log/todo-web.start.log
     echo "ERROR: podman pull failed"
     exit 1
   fi
-  if ! podman run -d --replace --name todo-web \
-    -p 80:8080 \
+  podman rm -f todo-web 2>/dev/null || true
+  if ! podman run -d --name todo-web \
+    --network host \
     -e DB_HOST={{ db_host }} \
     -e DB_PORT={{ db_port }} \
     {{ todo_web_image }}; then
     echo "ERROR: podman run failed"
     exit 1
   fi
+  iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 8080 2>/dev/null || \
+    iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 8080
   echo "=== todo-web started $(date) ==="
   podman ps -a
+  ss -tlnp | grep -E ':80|:8080' || true
 } >>"$LOG" 2>&1
