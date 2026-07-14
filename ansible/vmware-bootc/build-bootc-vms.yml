@@ -106,10 +106,10 @@
         cmd: "{{ govc_cmd }} datastore.mv {{ db01_vmdk_upload }} {{ db01_vmdk_final }}"
       tags: [db01]
 
-    - name: Check whether DB01 VM already exists
+    - name: Check whether DB01 VM already exists in sandbox folder
       ansible.builtin.command:
-        cmd: "{{ govc_cmd }} vm.info {{ db01_vm_name }}"
-      register: db01_vm_info
+        cmd: "{{ govc_cmd }} find {{ vm_folder }} -type m -name {{ db01_vm_name }}"
+      register: db01_vm_find
       failed_when: false
       changed_when: false
       tags: [db01]
@@ -127,7 +127,7 @@
           -g {{ vm_guest_id }}
           -on=true
           {{ db01_vm_name }}
-      when: db01_vm_info.rc != 0
+      when: db01_vm_find.stdout | trim | length == 0
       tags: [db01]
 
     - name: Wait for DB01 VM IP address
@@ -221,10 +221,10 @@
         cmd: "{{ govc_cmd }} datastore.mv {{ web01_vmdk_upload }} {{ web01_vmdk_final }}"
       tags: [web01]
 
-    - name: Check whether WEB01 VM already exists
+    - name: Check whether WEB01 VM already exists in sandbox folder
       ansible.builtin.command:
-        cmd: "{{ govc_cmd }} vm.info {{ web01_vm_name }}"
-      register: web01_vm_info
+        cmd: "{{ govc_cmd }} find {{ vm_folder }} -type m -name {{ web01_vm_name }}"
+      register: web01_vm_find
       failed_when: false
       changed_when: false
       tags: [web01]
@@ -242,7 +242,7 @@
           -g {{ vm_guest_id }}
           -on=true
           {{ web01_vm_name }}
-      when: web01_vm_info.rc != 0
+      when: web01_vm_find.stdout | trim | length == 0
       tags: [web01]
 
     - name: Wait for WEB01 VM IP address
