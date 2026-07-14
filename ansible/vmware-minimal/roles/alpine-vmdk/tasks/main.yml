@@ -126,6 +126,12 @@
         dest: "{{ alpine_mnt }}/etc/network/interfaces"
         mode: "0644"
 
+    - name: Deploy Alpine fstab for root filesystem
+      ansible.builtin.template:
+        src: fstab.j2
+        dest: "{{ alpine_mnt }}/etc/fstab"
+        mode: "0644"
+
     - name: Ensure Alpine local.d directory exists
       ansible.builtin.file:
         path: "{{ alpine_mnt }}/etc/local.d"
@@ -213,7 +219,7 @@
         set -o pipefail
         KERNEL_VER="$(ls {{ alpine_mnt }}/lib/modules | head -1)"
         {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }} \
-          chroot /mnt mkinitfs -F "base ext4 ext2 scsi sd_mod virtio" "${KERNEL_VER}"
+          chroot /mnt mkinitfs -f /etc/fstab -F "base ext4 scsi virtio ide dhcp" "${KERNEL_VER}"
       args:
         executable: /bin/bash
 
