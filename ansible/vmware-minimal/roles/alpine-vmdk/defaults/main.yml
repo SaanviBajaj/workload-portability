@@ -38,6 +38,12 @@ alpine_web_packages:
   - sudo
 
 alpine_openrc_services:
+  - { service: sysfs, runlevel: boot }
+  - { service: procfs, runlevel: boot }
+  - { service: devfs, runlevel: boot }
+  - { service: fsck, runlevel: boot }
+  - { service: localmount, runlevel: boot }
+  - { service: root, runlevel: boot }
   - { service: cgroups, runlevel: boot }
   - { service: modules, runlevel: boot }
   - { service: hostname, runlevel: boot }

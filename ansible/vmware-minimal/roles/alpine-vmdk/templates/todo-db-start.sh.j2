@@ -1,32 +1,36 @@
 #!/bin/sh
-LOG=/tmp/todo-db.start.log
+mount -o remount,rw / 2>/dev/null || true
+
+echo "=== todo-db startup $(date) ==="
 IMAGE_TAR=/var/images/todo-db.tar
-{
-  echo "=== todo-db startup $(date) ==="
-  /usr/local/bin/prepare-podman-net
-  i=0
-  while [ "$i" -lt 60 ]; do
-    ip -4 addr show eth0 2>/dev/null | grep -q 'inet ' && break
-    i=$((i + 1))
-    sleep 1
-  done
-  if [ -f "$IMAGE_TAR" ]; then
-    echo "Loading embedded image from $IMAGE_TAR"
-    podman load -i "$IMAGE_TAR"
-  elif ! podman image exists {{ todo_db_image }}; then
-    /usr/local/bin/ensure-dns
-    if ! podman pull {{ todo_db_image }}; then
-      echo "ERROR: podman pull failed and no embedded image at $IMAGE_TAR"
-      exit 1
-    fi
-  fi
-  podman rm -f todo-db 2>/dev/null || true
-  if ! podman run -d --name todo-db \
-    --network host \
-    {{ todo_db_image }}; then
-    echo "ERROR: podman run failed"
+
+/usr/local/bin/prepare-podman-net
+
+i=0
+while [ "$i" -lt 60 ]; do
+  ip -4 addr show eth0 2>/dev/null | grep -q 'inet ' && break
+  i=$((i + 1))
+  sleep 1
+done
+
+if [ -f "$IMAGE_TAR" ]; then
+  echo "Loading embedded image from $IMAGE_TAR"
+  podman load -i "$IMAGE_TAR"
+elif ! podman image exists {{ todo_db_image }}; then
+  /usr/local/bin/ensure-dns
+  if ! podman pull {{ todo_db_image }}; then
+    echo "ERROR: podman pull failed and no embedded image at $IMAGE_TAR"
     exit 1
   fi
-  echo "=== todo-db started $(date) ==="
-  podman ps -a
-} >>"$LOG" 2>&1
+fi
+
+podman rm -f todo-db 2>/dev/null || true
+if ! podman run -d --name todo-db \
+  --network host \
+  {{ todo_db_image }}; then
+  echo "ERROR: podman run failed"
+  exit 1
+fi
+
+echo "=== todo-db started $(date) ==="
+podman ps -a
