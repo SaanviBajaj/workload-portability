@@ -30,13 +30,8 @@
       become: false
 
     - name: Install build dependencies on bastion
-      ansible.builtin.package:
-        name:
-          - qemu-img
-          - util-linux
-          - e2fsprogs
-          - podman
-        state: present
+      ansible.builtin.include_role:
+        name: bastion-build-deps
       tags: [db01, web01]
 
     # -------------------------------------------------------------------------

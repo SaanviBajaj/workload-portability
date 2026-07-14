@@ -34,6 +34,9 @@ alpine_mirror: "https://dl-cdn.alpinelinux.org/alpine"
 alpine_image: "docker.io/library/alpine:{{ alpine_version }}"
 disk_mb: 700
 
+# Podman image used for qemu-img when the bastion has no dnf repos
+qemu_img_image: "docker.io/library/alpine:3.20"
+
 # Build directories on the bastion (use sudo so artifacts land in /root/minimal-build)
 work_base: "{{ ansible_env.HOME | default(lookup('env', 'HOME'), true) | default('/root') }}/minimal-build"
 govc_env_path: "{{ work_base }}/govc.env"

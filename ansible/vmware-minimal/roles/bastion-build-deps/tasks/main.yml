@@ -1,0 +1,73 @@
+---
+- name: Try installing build packages when dnf repos are available
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ bastion_build_packages + qemu_img_packages }}"
+  failed_when: false
+
+- name: Verify required host commands exist
+  ansible.builtin.command:
+    cmd: which {{ item }}
+  loop:
+    - losetup
+    - sfdisk
+    - mkfs.ext4
+    - mount
+    - umount
+    - podman
+  register: host_tools_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail when required host tools are missing
+  ansible.builtin.fail:
+    msg: >-
+      Required command '{{ item.item }}' is missing on the bastion.
+      Package installs failed because this VM has no enabled dnf repos.
+      Ask your lab admin, or use a bastion with util-linux and e2fsprogs pre-installed.
+  loop: "{{ host_tools_check.results }}"
+  when: item.rc != 0
+
+- name: Check for host qemu-img binary
+  ansible.builtin.command:
+    cmd: which qemu-img
+  register: host_qemu_img
+  changed_when: false
+  failed_when: false
+
+- name: Pull container image for qemu-img when host binary is missing
+  ansible.builtin.command:
+    cmd: podman pull {{ qemu_img_image }}
+  register: qemu_img_pull
+  changed_when: "'Downloading' in qemu_img_pull.stderr or 'Pulling' in qemu_img_pull.stderr or 'Writing' in qemu_img_pull.stderr"
+  when: host_qemu_img.rc != 0
+
+- name: Verify containerized qemu-img works
+  ansible.builtin.command:
+    cmd: >-
+      podman run --rm {{ qemu_img_image }}
+      sh -ec "apk add --no-cache qemu-img >/dev/null && qemu-img --version"
+  register: container_qemu_img
+  changed_when: false
+  when: host_qemu_img.rc != 0
+
+- name: Fail when qemu-img is unavailable on host and in container
+  ansible.builtin.fail:
+    msg: >-
+      qemu-img is not on the bastion and the Podman fallback failed.
+      Check that the bastion can reach the internet to pull {{ qemu_img_image }}.
+  when:
+    - host_qemu_img.rc != 0
+    - container_qemu_img is defined
+    - container_qemu_img.rc != 0
+
+- name: Report qemu-img source
+  ansible.builtin.debug:
+    msg: "Using host qemu-img binary."
+  when: host_qemu_img.rc == 0
+
+- name: Report qemu-img Podman fallback
+  ansible.builtin.debug:
+    msg: "Host qemu-img not found — using Podman container ({{ qemu_img_image }})."
+  when: host_qemu_img.rc != 0

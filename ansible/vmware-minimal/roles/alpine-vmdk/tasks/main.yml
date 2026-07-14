@@ -12,6 +12,16 @@
       {{ alpine_common_packages +
          (alpine_web_packages if alpine_role == 'web' else []) }}
 
+- name: Deploy qemu-img wrapper script
+  ansible.builtin.template:
+    src: qemu-img-wrapper.j2
+    dest: "{{ alpine_build_dir }}/qemu-img-wrapper"
+    mode: "0755"
+
+- name: Set qemu-img command path
+  ansible.builtin.set_fact:
+    alpine_qemu_img: "{{ alpine_build_dir }}/qemu-img-wrapper"
+
 - name: Build Alpine VMDK image
   block:
     - name: Ensure Alpine build directories exist
@@ -34,7 +44,7 @@
 
     - name: Create raw disk image
       ansible.builtin.command:
-        cmd: qemu-img create -f raw {{ alpine_raw }} {{ disk_mb }}M
+        cmd: "{{ alpine_qemu_img }} create -f raw {{ alpine_raw }} {{ disk_mb }}M"
 
     - name: Partition raw disk with MBR layout
       ansible.builtin.shell: |
@@ -209,7 +219,7 @@
     - name: Convert raw disk to streamOptimized VMDK
       ansible.builtin.command:
         cmd: >-
-          qemu-img convert -f raw -O vmdk
+          {{ alpine_qemu_img }} convert -f raw -O vmdk
           -o subformat=streamOptimized
           {{ alpine_raw }} {{ alpine_vmdk }}
 

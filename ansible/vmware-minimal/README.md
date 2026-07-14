@@ -54,13 +54,17 @@ You need to be logged into the **bastion VM** (not your laptop) for all the comm
 ```bash
 ansible-playbook --version
 podman --version
-qemu-img --version
+which losetup sfdisk mkfs.ext4 mount
 ```
 
-If something is missing:
+The playbook needs **podman** plus basic Linux tools (`losetup`, `sfdisk`, `mkfs.ext4`, `mount`). These are usually pre-installed on the bastion.
+
+`qemu-img` is **not** required on the host — if it's missing (common on lab bastions with no dnf repos), the playbook runs it via Podman automatically.
+
+Optional manual check:
 
 ```bash
-sudo dnf install -y ansible-core podman qemu-img util-linux e2fsprogs
+qemu-img --version    # OK if this works; OK if it doesn't too
 ```
 
 ### Information you need from the demo environment
@@ -441,6 +445,27 @@ Make sure you're using `sudo`:
 ```bash
 sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
 ```
+
+### `No package qemu-img available` or `no enabled repositories`
+
+Lab bastions often have **no dnf repos** — you cannot install packages with `dnf`. That's expected.
+
+The playbook handles this by running `qemu-img` inside a Podman container (Alpine image with internet access). Just `git pull` and re-run:
+
+```bash
+cd ~/workload-portability/ansible/vmware-minimal
+git pull
+sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
+```
+
+Quick test that the Podman fallback works:
+
+```bash
+sudo podman run --rm docker.io/library/alpine:3.20 \
+  sh -ec "apk add --no-cache qemu-img && qemu-img --version"
+```
+
+If that fails, the bastion cannot reach the internet to pull container images.
 
 ### Playbook hangs waiting for VM IP
 

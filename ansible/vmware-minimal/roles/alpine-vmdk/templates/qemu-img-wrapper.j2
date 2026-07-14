@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Use host qemu-img when available; otherwise run via Podman (no dnf on bastion).
+set -euo pipefail
+
+BUILD_DIR="{{ alpine_build_dir }}"
+CONTAINER_IMAGE="{{ qemu_img_image }}"
+
+if command -v qemu-img >/dev/null 2>&1; then
+  exec qemu-img "$@"
+fi
+
+exec podman run --rm \
+  -v "${BUILD_DIR}:${BUILD_DIR}" \
+  -w "${BUILD_DIR}" \
+  "${CONTAINER_IMAGE}" \
+  sh -ec "apk add --no-cache qemu-img >/dev/null 2>&1 && exec qemu-img $(printf '%q ' "$@")"
