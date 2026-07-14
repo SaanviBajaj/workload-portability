@@ -1,11 +1,13 @@
 #!/bin/sh
-# VMware NIC may appear a few seconds after boot; wait then configure networking.
+# VMware NIC drivers load after boot — do not start networking until eth0 exists.
 i=0
-while [ "$i" -lt 30 ]; do
+while [ "$i" -lt 60 ]; do
   if ip link show eth0 >/dev/null 2>&1; then
-    break
+    rc-service networking start
+    exit 0
   fi
   i=$((i + 1))
   sleep 1
 done
-rc-service networking restart
+echo "network-wait: eth0 not found after 60s" >&2
+exit 1

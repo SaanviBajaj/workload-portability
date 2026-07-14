@@ -152,16 +152,16 @@
         mode: "0755"
       when: alpine_role == 'web'
 
-    - name: Deploy VMware Tools startup helper
-      ansible.builtin.template:
-        src: vmtools.start.j2
-        dest: "{{ alpine_mnt }}/etc/local.d/00-vmtools.start"
-        mode: "0755"
-
     - name: Deploy network wait helper for VMware NIC
       ansible.builtin.template:
         src: network-wait.start.j2
-        dest: "{{ alpine_mnt }}/etc/local.d/01-network-wait.start"
+        dest: "{{ alpine_mnt }}/etc/local.d/00-network-wait.start"
+        mode: "0755"
+
+    - name: Deploy VMware Tools startup helper
+      ansible.builtin.template:
+        src: vmtools.start.j2
+        dest: "{{ alpine_mnt }}/etc/local.d/01-vmtools.start"
         mode: "0755"
 
     - name: Create demo SSH user in Alpine rootfs
