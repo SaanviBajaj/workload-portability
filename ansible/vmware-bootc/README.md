@@ -98,9 +98,8 @@ ansible-playbook build-bootc-vms.yml -e @credentials.env
 3. Waits for the database VM to get an IP address
 4. Builds the **web** VM disk image
 5. Uploads it to VMware and creates `todo-web`
-6. SSHes into `todo-web` and:
-   - Tells the web app where the database is
-   - Publishes the web app on port 80 (maps to container 8080)
+6. SSHes into `todo-web` and tells the web app where the database is
+7. Opens bastion `firewalld` port 80 forward to `todo-web` (external access)
 
 Go get a coffee — image builds can take 10–20+ minutes.
 
@@ -192,8 +191,11 @@ ansible-playbook build-bootc-vms.yml -e @credentials.env --tags db01
 # Web only (run after db01 is done)
 ansible-playbook build-bootc-vms.yml -e @credentials.env --tags web01
 
-# Configure web app only (DB connection + port 80)
+# Configure web app only (DB connection)
 ansible-playbook build-bootc-vms.yml -e @credentials.env --tags configure
+
+# Bastion firewall only (port 80 forward to todo-web)
+ansible-playbook build-bootc-vms.yml -e @credentials.env --tags bastion-firewall
 ```
 
 If `todo-db` already exists and you only need to build/configure the web tier:

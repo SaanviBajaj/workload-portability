@@ -11,6 +11,7 @@
 # Run only DB or WEB:
 #   ansible-playbook -i inventory.ini build-bootc-vms.yml --tags db01
 #   ansible-playbook -i inventory.ini build-bootc-vms.yml --tags web01
+#   ansible-playbook -i inventory.ini build-bootc-vms.yml --tags bastion-firewall
 
 - name: Build and deploy bootc todo DB01 and WEB01 VMs on VMware
   hosts: bastion
@@ -269,7 +270,13 @@
         db_port: "{{ db_port }}"
       tags: [web01, configure]
 
-- name: Configure WEB01 runtime (DB connection + port 80 forward)
+    - name: Remember todo-web IP for bastion firewall
+      ansible.builtin.set_fact:
+        todo_web_ip: "{{ web01_ip_result.stdout | trim }}"
+      when: web01_ip_result.stdout | trim | length > 0
+      tags: [web01, configure, bastion-firewall]
+
+- name: Configure WEB01 runtime (DB connection)
   hosts: web01_vm
   gather_facts: false
   vars:
@@ -313,3 +320,86 @@
         state: restarted
       become: true
       tags: [configure]
+
+- name: Configure bastion firewall HTTP forward to todo-web
+  hosts: bastion
+  gather_facts: false
+  become: true
+  vars:
+    govc_cmd: >-
+      podman run --rm --env-file {{ govc_env_path }}
+      docker.io/vmware/govc:latest /govc
+    todo_web_ip: "{{ hostvars[inventory_hostname].todo_web_ip | default('') }}"
+
+  tasks:
+    - name: Discover todo-web IP for bastion firewall
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ web01_vm_name }}"
+      register: bastion_fw_web_ip
+      changed_when: false
+      when: todo_web_ip | length == 0
+      tags: [bastion-firewall]
+
+    - name: Set todo-web IP for bastion firewall
+      ansible.builtin.set_fact:
+        todo_web_ip: "{{ bastion_fw_web_ip.stdout | trim }}"
+      when: todo_web_ip | length == 0
+      tags: [bastion-firewall]
+
+    - name: Ensure firewalld is running
+      ansible.builtin.systemd:
+        name: firewalld
+        state: started
+        enabled: true
+      tags: [bastion-firewall]
+
+    - name: Check whether bastion allows incoming HTTP port
+      ansible.builtin.command:
+        cmd: firewall-cmd --query-port={{ bastion_firewall_forward_port }}/tcp
+      register: fw_http_port_check
+      failed_when: false
+      changed_when: false
+      tags: [bastion-firewall]
+
+    - name: Allow incoming HTTP on bastion firewall
+      ansible.builtin.command:
+        cmd: firewall-cmd --permanent --add-port={{ bastion_firewall_forward_port }}/tcp
+      when: fw_http_port_check.rc != 0
+      tags: [bastion-firewall]
+
+    - name: Check whether bastion HTTP forward rule exists
+      ansible.builtin.command:
+        cmd: >-
+          firewall-cmd --query-forward-port=port={{ bastion_firewall_forward_port }}:proto=tcp:toport={{ todo_web_service_port }}:toaddr={{ todo_web_ip }}
+      register: fw_forward_check
+      failed_when: false
+      changed_when: false
+      tags: [bastion-firewall]
+
+    - name: Forward bastion HTTP to todo-web
+      ansible.builtin.command:
+        cmd: >-
+          firewall-cmd --permanent
+          --add-forward-port=port={{ bastion_firewall_forward_port }}:proto=tcp:toport={{ todo_web_service_port }}:toaddr={{ todo_web_ip }}
+      when: fw_forward_check.rc != 0
+      tags: [bastion-firewall]
+
+    - name: Check whether masquerade is enabled on bastion
+      ansible.builtin.command:
+        cmd: firewall-cmd --query-masquerade
+      register: fw_masq_check
+      failed_when: false
+      changed_when: false
+      tags: [bastion-firewall]
+
+    - name: Enable masquerade on bastion firewall
+      ansible.builtin.command:
+        cmd: firewall-cmd --permanent --add-masquerade
+      when: fw_masq_check.rc != 0
+      tags: [bastion-firewall]
+
+    - name: Reload bastion firewall
+      ansible.builtin.command:
+        cmd: firewall-cmd --reload
+      changed_when: true
+      tags: [bastion-firewall]

@@ -52,3 +52,7 @@ vm_ip_retry_delay: 10
 
 # Podman build/bootc-image-builder typically need root on the bastion
 podman_become: true
+
+# Bastion firewalld — forward public HTTP to todo-web (final external access step)
+bastion_firewall_forward_port: 80
+todo_web_service_port: 80
