@@ -78,6 +78,24 @@
       ansible.builtin.command:
         cmd: mount -t ext4 {{ alpine_loop_part }} {{ alpine_mnt }}
 
+    - name: Ensure apk config directories exist in Alpine rootfs
+      ansible.builtin.file:
+        path: "{{ alpine_mnt }}/etc/apk/keys"
+        state: directory
+        mode: "0755"
+
+    - name: Seed apk signing keys into Alpine rootfs
+      ansible.builtin.command:
+        cmd: >-
+          {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          sh -c "cp -a /etc/apk/keys/. /mnt/etc/apk/keys/"
+
+    - name: Configure apk repositories in Alpine rootfs
+      ansible.builtin.template:
+        src: apk-repositories.j2
+        dest: "{{ alpine_mnt }}/etc/apk/repositories"
+        mode: "0644"
+
     - name: Bootstrap Alpine base rootfs
       ansible.builtin.command:
         cmd: >-
@@ -85,11 +103,7 @@
           -v {{ alpine_mnt }}:/mnt
           -v /etc/resolv.conf:/etc/resolv.conf:ro
           {{ alpine_image }}
-          sh -ec
-          "apk add --root /mnt --initdb --arch x86_64
-          -X {{ alpine_mirror }}/v{{ alpine_version }}/main
-          -X {{ alpine_mirror }}/v{{ alpine_version }}/community
-          alpine-base"
+          sh -ec "apk add --root /mnt --initdb --arch x86_64 alpine-base"
 
     - name: Install Alpine packages into rootfs
       ansible.builtin.command:
@@ -98,11 +112,7 @@
           -v {{ alpine_mnt }}:/mnt
           -v /etc/resolv.conf:/etc/resolv.conf:ro
           {{ alpine_image }}
-          sh -ec
-          "apk add --root /mnt --arch x86_64
-          -X {{ alpine_mirror }}/v{{ alpine_version }}/main
-          -X {{ alpine_mirror }}/v{{ alpine_version }}/community
-          {{ alpine_install_packages | join(' ') }}"
+          sh -ec "apk add --root /mnt --arch x86_64 {{ alpine_install_packages | join(' ') }}"
 
     - name: Set Alpine hostname
       ansible.builtin.copy:
