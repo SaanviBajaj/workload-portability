@@ -1,4 +1,6 @@
 #!/bin/sh
+# Defer app pull until network and VMware Tools are up (local.d runs 99-* last).
+sleep 30
 podman pull {{ todo_web_image }} || true
 podman run -d --replace --name todo-web \
   -p 80:8080 \

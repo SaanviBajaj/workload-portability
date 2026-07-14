@@ -1,5 +1,3 @@
 #!/bin/sh
-# Ensure networking and VMware Tools are running so vSphere can report the guest IP.
-sleep 10
-rc-service networking restart
-rc-service open-vm-tools restart
+rc-service networking start
+rc-service open-vm-tools start

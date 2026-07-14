@@ -480,18 +480,14 @@ The image **does** include `open-vm-tools` + `open-vm-tools-guestinfo`. First bo
 sudo ansible-playbook build-minimal-vms.yml -e @credentials.env -e vm_first_boot_pause=180
 ```
 
-3. **Recommended workaround — static IPs** in `credentials.env` (bypasses VMware Tools IP discovery):
+3. **Fastest option — static IPs** in `credentials.env` (skips all discovery):
 
 ```yaml
 db01_static_ip: "192.168.108.50"
 web01_static_ip: "192.168.108.51"
 ```
 
-Pick free IPs on your sandbox segment, then re-run:
-
-```bash
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
-```
+The playbook now tries **ARP first** (fast, from DHCP), then VMware Tools (slow on first boot). App containers are delayed 30s so tools can report first.
 
 4. Or set only the DB IP if todo-db already has one:
 

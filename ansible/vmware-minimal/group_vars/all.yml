@@ -59,9 +59,11 @@ alpine_static_gateway: ""
 
 # Per-attempt wait passed to govc vm.ip -wait= (keep short; Ansible retries below)
 vm_ip_wait: "30s"
-vm_ip_retries: 30
+vm_ip_retries: 18
 vm_ip_retry_delay: 10
-vm_first_boot_pause: 90
+vm_first_boot_pause: 30
+vm_arp_retries: 36
+vm_arp_retry_delay: 10
 
 # Bastion firewalld — forward public HTTP to todo-web
 bastion_firewall_forward_port: 80

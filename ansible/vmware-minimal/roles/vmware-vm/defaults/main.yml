@@ -1,13 +1,11 @@
 ---
-vm_build_dir: "{{ work_base }}/vm"
-vm_datastore_folder: ""
-vm_vmdk_filename: "disk1.vmdk"
-vm_name: ""
 vm_wait_for_ip: false
 vm_power_on: true
 vm_ip_fact_name: ""
 vm_static_ip: ""
-vm_first_boot_pause: 90
+vm_first_boot_pause: 30
+vm_arp_retries: 36
+vm_arp_retry_delay: 10
 
 vm_vmdk_upload: "{{ datastore_base }}/{{ vm_vmdk_filename }}"
 vm_vmdk_final: "{{ datastore_base }}/{{ vm_datastore_folder }}/{{ vm_vmdk_filename }}"

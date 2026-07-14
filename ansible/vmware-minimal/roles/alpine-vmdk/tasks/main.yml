@@ -141,21 +141,21 @@
     - name: Deploy todo-db OpenRC startup script
       ansible.builtin.template:
         src: todo-db.start.j2
-        dest: "{{ alpine_mnt }}/etc/local.d/todo-db.start"
+        dest: "{{ alpine_mnt }}/etc/local.d/99-todo-db.start"
         mode: "0755"
       when: alpine_role == 'db'
 
     - name: Deploy todo-web OpenRC startup script
       ansible.builtin.template:
         src: todo-web.start.j2
-        dest: "{{ alpine_mnt }}/etc/local.d/todo-web.start"
+        dest: "{{ alpine_mnt }}/etc/local.d/99-todo-web.start"
         mode: "0755"
       when: alpine_role == 'web'
 
     - name: Deploy VMware Tools startup helper
       ansible.builtin.template:
         src: vmtools.start.j2
-        dest: "{{ alpine_mnt }}/etc/local.d/vmtools.start"
+        dest: "{{ alpine_mnt }}/etc/local.d/00-vmtools.start"
         mode: "0755"
 
     - name: Create demo SSH user in Alpine rootfs

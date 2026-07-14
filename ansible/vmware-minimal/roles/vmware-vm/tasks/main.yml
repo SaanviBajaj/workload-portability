@@ -57,43 +57,82 @@
     - vm_static_ip | length > 0
     - vm_ip_fact_name | length > 0
 
-- name: Pause for first VM boot before VMware Tools IP discovery
-  ansible.builtin.pause:
-    seconds: "{{ vm_first_boot_pause }}"
-  when:
-    - vm_wait_for_ip | bool
-    - vm_static_ip | length == 0
-
-- name: Wait for VM IP address via VMware Tools
-  ansible.builtin.command:
-    cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ vm_name }}"
-  register: vmware_vm_ip
-  retries: "{{ vm_ip_retries }}"
-  delay: "{{ vm_ip_retry_delay }}"
-  until: vmware_vm_ip.stdout | trim | length > 0
-  changed_when: false
-  when:
-    - vm_wait_for_ip | bool
-    - vm_static_ip | length == 0
-
-- name: Publish discovered VM IP as fact
-  ansible.builtin.set_fact:
-    "{{ vm_ip_fact_name }}": "{{ vmware_vm_ip.stdout | trim }}"
+- name: Discover VM IP address
   when:
     - vm_wait_for_ip | bool
     - vm_static_ip | length == 0
     - vm_ip_fact_name | length > 0
-    - vmware_vm_ip.stdout | trim | length > 0
+  block:
+    - name: Wait for VM DHCP before IP discovery
+      ansible.builtin.pause:
+        seconds: "{{ vm_first_boot_pause }}"
+        prompt: "Waiting {{ vm_first_boot_pause }}s for {{ vm_name }} to boot and get DHCP..."
 
-- name: Fail when VMware Tools IP discovery failed
-  ansible.builtin.fail:
-    msg: >-
-      Could not discover IP for {{ vm_name }} via VMware Tools (govc vm.ip).
-      Open the VM console in vSphere to confirm it booted.
-      Workaround: set a static IP in credentials.env (db01_static_ip / web01_static_ip)
-      and re-run with --tags db01 or --tags web01.
-  when:
-    - vm_wait_for_ip | bool
-    - vm_static_ip | length == 0
-    - vmware_vm_ip is defined
-    - vmware_vm_ip.stdout | default('') | trim | length == 0
+    - name: Get VM ethernet MAC address
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} device.info -vm {{ vm_name }} ethernet-0"
+      register: vm_nic_info
+      changed_when: false
+      failed_when: false
+
+    - name: Set VM MAC address fact
+      ansible.builtin.set_fact:
+        vm_mac: "{{ vm_nic_info.stdout | regex_search('([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}') | default('', true) }}"
+
+    - name: Discover VM IP via ARP neighbor table (fast path)
+      ansible.builtin.shell: |
+        set -o pipefail
+        MAC="{{ vm_mac | lower }}"
+        ip neigh show 2>/dev/null | grep -i "${MAC}" | awk '{print $1}' | head -1
+      args:
+        executable: /bin/bash
+      register: vm_arp_ip
+      until: vm_arp_ip.stdout | trim | length > 0
+      retries: "{{ vm_arp_retries }}"
+      delay: "{{ vm_arp_retry_delay }}"
+      changed_when: false
+      when: vm_mac | length > 0
+
+    - name: Report ARP-discovered VM IP
+      ansible.builtin.debug:
+        msg: "Discovered {{ vm_name }} IP {{ vm_arp_ip.stdout | trim }} via ARP (MAC {{ vm_mac }})."
+      when: vm_arp_ip.stdout | default('') | trim | length > 0
+
+    - name: Wait for VM IP via VMware Tools (slow path)
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ vm_name }}"
+      register: vmware_vm_ip
+      retries: "{{ vm_ip_retries }}"
+      delay: "{{ vm_ip_retry_delay }}"
+      until: vmware_vm_ip.stdout | trim | length > 0
+      changed_when: false
+      when: vm_arp_ip.stdout | default('') | trim | length == 0
+
+    - name: Report VMware Tools-discovered VM IP
+      ansible.builtin.debug:
+        msg: "Discovered {{ vm_name }} IP {{ vmware_vm_ip.stdout | trim }} via VMware Tools."
+      when:
+        - vm_arp_ip.stdout | default('') | trim | length == 0
+        - vmware_vm_ip.stdout | default('') | trim | length > 0
+
+    - name: Publish discovered VM IP as fact
+      ansible.builtin.set_fact:
+        discovered_vm_ip: >-
+          {{
+            (vm_arp_ip.stdout | default('') | trim)
+            if (vm_arp_ip.stdout | default('') | trim | length > 0)
+            else (vmware_vm_ip.stdout | default('') | trim)
+          }}
+
+    - name: Save discovered VM IP to playbook fact
+      ansible.builtin.set_fact:
+        "{{ vm_ip_fact_name }}": "{{ discovered_vm_ip }}"
+
+    - name: Fail when VM IP could not be discovered
+      ansible.builtin.fail:
+        msg: >-
+          Could not discover IP for {{ vm_name }}.
+          ARP (MAC {{ vm_mac | default('unknown') }}) and VMware Tools both failed.
+          Fastest fix: set db01_static_ip / web01_static_ip in credentials.env and re-run
+          with --tags db01 or --tags web01.
+      when: discovered_vm_ip | length == 0

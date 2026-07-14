@@ -1,4 +1,6 @@
 #!/bin/sh
+# Defer app pull until network and VMware Tools are up (local.d runs 99-* last).
+sleep 30
 podman pull {{ todo_db_image }} || true
 podman run -d --replace --name todo-db \
   -p 5432:5432 \
