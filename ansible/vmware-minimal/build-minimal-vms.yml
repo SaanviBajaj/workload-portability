@@ -1,5 +1,5 @@
 ---
-# Build minimal Alpine Linux VMDKs (<1 GB) and deploy todo-db + todo-web VMs to VMware.
+# Build minimal Alpine Linux VMDKs (~600 MB) and deploy todo-db + todo-web VMs to VMware.
 #
 # Run on the bastion VM:
 #   cd ansible/vmware-minimal

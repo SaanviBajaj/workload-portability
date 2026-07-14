@@ -36,7 +36,7 @@ todo_web_image_tar: "{{ work_base }}/todo-web.tar"
 alpine_version: "3.20"
 alpine_mirror: "https://dl-cdn.alpinelinux.org/alpine"
 alpine_image: "docker.io/library/alpine:{{ alpine_version }}"
-disk_mb: 1024
+disk_mb: 600
 
 # Podman image used for qemu-img when the bastion has no dnf repos
 qemu_img_image: "docker.io/library/alpine:3.20"
