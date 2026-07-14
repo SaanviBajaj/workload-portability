@@ -39,6 +39,7 @@ alpine_web_packages:
 
 alpine_openrc_services:
   - { service: cgroups, runlevel: boot }
+  - { service: modules, runlevel: boot }
   - { service: hostname, runlevel: boot }
   - { service: local, runlevel: default }
   - { service: open-vm-tools, runlevel: default }

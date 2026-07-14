@@ -126,6 +126,12 @@
         dest: "{{ alpine_mnt }}/etc/network/interfaces"
         mode: "0644"
 
+    - name: Deploy VMware NIC kernel modules for early boot
+      ansible.builtin.template:
+        src: modules.j2
+        dest: "{{ alpine_mnt }}/etc/modules"
+        mode: "0644"
+
     - name: Deploy Alpine fstab for root filesystem
       ansible.builtin.template:
         src: fstab.j2

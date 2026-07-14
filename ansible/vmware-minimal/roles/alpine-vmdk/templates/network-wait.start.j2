@@ -4,7 +4,7 @@ modprobe vmxnet3 2>/dev/null
 modprobe e1000 2>/dev/null
 
 i=0
-while [ "$i" -lt 60 ]; do
+while [ "$i" -lt 120 ]; do
   if ip link show eth0 >/dev/null 2>&1; then
     break
   fi
@@ -13,7 +13,7 @@ while [ "$i" -lt 60 ]; do
 done
 
 if ! ip link show eth0 >/dev/null 2>&1; then
-  echo "network-wait: eth0 not found after 60s" >&2
+  echo "network-wait: eth0 not found after 120s" >&2
   exit 1
 fi
 
@@ -21,7 +21,7 @@ ip link set eth0 up
 rc-service networking start
 
 j=0
-while [ "$j" -lt 45 ]; do
+while [ "$j" -lt 60 ]; do
   if ip -4 addr show eth0 | grep -q 'inet '; then
     /usr/local/bin/ensure-dns
     exit 0
@@ -30,7 +30,6 @@ while [ "$j" -lt 45 ]; do
   sleep 1
 done
 
-# Last resort: run udhcpc directly if ifupdown-ng did not get a lease.
 udhcpc -i eth0 -t 5 -T 3 -n -q 2>/dev/null || true
 /usr/local/bin/ensure-dns
 exit 0
