@@ -13,7 +13,7 @@
 
 - name: Clean up minimal Alpine todo VMs and demo resources
   hosts: bastion
-  gather_facts: false
+  gather_facts: true
   become: true
   vars:
     db01_vmdk_upload: "{{ datastore_base }}/todo-db-disk1.vmdk"

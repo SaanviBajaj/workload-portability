@@ -15,7 +15,7 @@
 
 - name: Clean up bootc todo VMs and demo resources
   hosts: bastion
-  gather_facts: false
+  gather_facts: true
   become: true
   vars:
     db01_build_dir: "{{ work_base }}/db01"

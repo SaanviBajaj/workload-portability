@@ -35,7 +35,7 @@ alpine_image: "docker.io/library/alpine:{{ alpine_version }}"
 disk_mb: 700
 
 # Build directories on the bastion (use sudo so artifacts land in /root/minimal-build)
-work_base: "{{ ansible_env.HOME }}/minimal-build"
+work_base: "{{ ansible_env.HOME | default(lookup('env', 'HOME'), true) | default('/root') }}/minimal-build"
 govc_env_path: "{{ work_base }}/govc.env"
 db01_build_dir: "{{ work_base }}/todo-db"
 web01_build_dir: "{{ work_base }}/todo-web"

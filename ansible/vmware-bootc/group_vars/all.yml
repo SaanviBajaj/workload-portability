@@ -34,7 +34,7 @@ db01_bootc_tag: "my-bootc-todo-db:latest"
 web01_bootc_tag: "my-bootc-todo-web:latest"
 
 # Build directories on the bastion
-work_base: "{{ ansible_env.HOME }}/bootc-build"
+work_base: "{{ ansible_env.HOME | default(lookup('env', 'HOME'), true) | default('/root') }}/bootc-build"
 govc_env_path: "{{ work_base }}/govc.env"
 
 # Web VM login (baked into web01 image via config.toml)
