@@ -11,6 +11,8 @@ This playbook builds and deploys two VMs for the todo app demo:
 
 **Need to copy these files onto the bastion first?** → See [README-BASTION.md](README-BASTION.md)
 
+**Need to tear down VMs and clean up?** → See [README-CLEANUP.md](README-CLEANUP.md)
+
 ---
 
 ## Before you start
@@ -270,7 +272,7 @@ sudo ansible-playbook build-bootc-vms.yml -e @credentials.env \
 | File | What it is |
 |------|------------|
 | `build-bootc-vms.yml` | Main playbook — build and deploy |
-| `cleanup-bootc-vms.yml` | Teardown playbook — remove VMs and artifacts |
+| `cleanup-bootc-vms.yml` | Teardown playbook — see [README-CLEANUP.md](README-CLEANUP.md) |
 | `credentials.env` | Your secrets (create from example) |
 | `credentials.env.example` | Safe template |
 | `group_vars/all.yml` | Defaults (placeholders) |
@@ -293,50 +295,4 @@ Then open in a browser:
 
 ```
 http://YOUR_WEB_VM_NAME.cluster-XXXXX.dyn.redhatworkshops.io
-```
-
----
-
-## Cleanup — remove everything
-
-When you're done with the demo, tear down VMs, VMDKs, bastion firewall rules, and local build files:
-
-```bash
-sudo ansible-playbook cleanup-bootc-vms.yml -e @credentials.env
-```
-
-### What it removes
-
-| Step | What |
-|------|------|
-| Bastion firewall | HTTP forward rule, port 80 allowance |
-| VMware | Powers off and destroys `todo-web` and `todo-db` |
-| Datastore | Uploaded VMDKs and `Workload-Portability/` folder |
-| Bastion disk | `~/bootc-build/` or `/root/bootc-build/` |
-
-### Cleanup one part at a time
-
-```bash
-# VMs only
-sudo ansible-playbook cleanup-bootc-vms.yml -e @credentials.env --tags vms
-
-# Datastore VMDKs only
-sudo ansible-playbook cleanup-bootc-vms.yml -e @credentials.env --tags vmdks
-
-# Bastion firewall only
-sudo ansible-playbook cleanup-bootc-vms.yml -e @credentials.env --tags bastion-firewall
-
-# Local build files only
-sudo ansible-playbook cleanup-bootc-vms.yml -e @credentials.env --tags local
-```
-
-### Optional cleanup settings
-
-In `credentials.env` or `-e`:
-
-```yaml
-cleanup_podman_images: true        # also remove local bootc image tags
-cleanup_remove_masquerade: true    # remove masquerade (only if nothing else needs it)
-cleanup_local_build: false       # keep ~/bootc-build for faster rebuild
-cleanup_datastore_folder: false  # keep Workload-Portability folder on datastore
 ```

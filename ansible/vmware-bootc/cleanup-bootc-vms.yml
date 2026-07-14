@@ -1,6 +1,8 @@
 ---
 # Tear down bootc todo DB01 + WEB01 VMs and related resources.
 #
+# See README-CLEANUP.md for usage.
+#
 # Run on the bastion VM:
 #   cd ansible/vmware-bootc
 #   sudo ansible-playbook cleanup-bootc-vms.yml -e @credentials.env
