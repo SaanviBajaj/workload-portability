@@ -275,7 +275,7 @@ Here's the order, in plain English:
 2. **Builds todo-db disk** — Alpine rootfs + preloaded `todo-db` container image in Podman storage
 3. **Uploads todo-db disk** to VMware datastore
 4. **Creates todo-db VM** in your sandbox folder and powers it on
-5. **Waits for todo-db IP** via VMware Tools (pauses ~2 minutes on first boot)
+5. **Waits for todo-db IP** via VMware Tools (`govc vm.ip`)
 6. **Builds todo-web disk** — Alpine rootfs + preloaded `todo-web` image with `DB_HOST` set to the IP from step 5
 7. **Uploads todo-web disk** and **creates todo-web VM**
 8. **Waits for todo-web IP**
@@ -539,7 +539,7 @@ If that fails, the bastion cannot reach the internet to pull container images.
 `govc vm.ip` needs **open-vm-tools** running inside the guest. First boot can take **2+ minutes** before the IP appears.
 
 1. Check the VM console in vSphere — did Alpine boot? Look for `[ ok ] Starting todo-db container`
-2. Wait longer: `-e vm_first_boot_pause=180`
+2. Wait longer per attempt: `-e vm_ip_wait=90s` or more retries: `-e vm_ip_retries=30`
 3. Or set static IPs in `credentials.env` to skip discovery:
 
 ```yaml

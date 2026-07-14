@@ -65,14 +65,9 @@ alpine_static_gateway: ""
 vm_net_adapter: e1000
 
 # Per-attempt wait passed to govc vm.ip -wait=
-vm_ip_wait: "45s"
-vm_ip_retries: 24
-vm_ip_retry_delay: 15
-# VM needs ~60s for eth0 + ~45s for DHCP + vmtools before govc vm.ip works
-vm_first_boot_pause: 120
-# ARP only works when bastion shares L2 with the VM segment; keep this short
-vm_arp_retries: 6
-vm_arp_retry_delay: 5
+vm_ip_wait: "60s"
+vm_ip_retries: 20
+vm_ip_retry_delay: 10
 
 # Bastion firewalld — forward public HTTP to todo-web
 bastion_firewall_forward_port: 80
