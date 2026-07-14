@@ -333,52 +333,34 @@
         - alpine_embed_pull.rc != 0
         - not (alpine_offline_tar.stat.exists | default(false))
 
-    - name: Ensure staging directory exists for container image load
+    - name: Remove previous bastion Podman preload storage
       ansible.builtin.file:
-        path: "{{ alpine_mnt }}/var/images"
-        state: directory
-        mode: "0755"
-
-    - name: Stage container image archive in Alpine rootfs for Podman load
-      ansible.builtin.copy:
-        src: "{{ alpine_build_dir }}/{{ alpine_embed_tar }}"
-        dest: "{{ alpine_mnt }}/var/images/{{ alpine_embed_tar }}"
-        mode: "0644"
-
-    - name: Ensure chroot mount points exist for Podman image load
-      ansible.builtin.file:
-        path: "{{ alpine_mnt }}/{{ item }}"
-        state: directory
-        mode: "0755"
-      loop:
-        - dev
-        - proc
-        - sys
-
-    - name: Bind mount dev into Alpine chroot
-      ansible.builtin.command:
-        cmd: mount --bind /dev {{ alpine_mnt }}/dev
-
-    - name: Bind mount proc into Alpine chroot
-      ansible.builtin.command:
-        cmd: mount --bind /proc {{ alpine_mnt }}/proc
-
-    - name: Bind mount sys into Alpine chroot
-      ansible.builtin.command:
-        cmd: mount --bind /sys {{ alpine_mnt }}/sys
-
-    - name: Load container image into Alpine Podman storage
-      ansible.builtin.command:
-        cmd: chroot {{ alpine_mnt }} podman load -i /var/images/{{ alpine_embed_tar }}
-
-    - name: Remove container image archive from Alpine rootfs
-      ansible.builtin.file:
-        path: "{{ alpine_mnt }}/var/images/{{ alpine_embed_tar }}"
+        path: "{{ alpine_build_dir }}/podman-preload"
         state: absent
 
-    - name: Remove container image staging directory from Alpine rootfs
+    - name: Ensure bastion Podman preload directory exists
       ansible.builtin.file:
-        path: "{{ alpine_mnt }}/var/images"
+        path: "{{ alpine_build_dir }}/podman-preload"
+        state: directory
+        mode: "0755"
+
+    - name: Load container image into bastion-side Podman storage
+      ansible.builtin.command:
+        cmd: podman --root {{ alpine_build_dir }}/podman-preload load -i {{ alpine_build_dir }}/{{ alpine_embed_tar }}
+
+    - name: Ensure Alpine Podman storage directory exists
+      ansible.builtin.file:
+        path: "{{ alpine_mnt }}/var/lib/containers/storage"
+        state: directory
+        mode: "0755"
+
+    - name: Copy preloaded Podman storage into Alpine rootfs
+      ansible.builtin.command:
+        cmd: cp -a {{ alpine_build_dir }}/podman-preload/. {{ alpine_mnt }}/var/lib/containers/storage/
+
+    - name: Remove bastion-side Podman preload storage
+      ansible.builtin.file:
+        path: "{{ alpine_build_dir }}/podman-preload"
         state: absent
 
     - name: Remove container image archive from bastion build dir
@@ -409,6 +391,28 @@
       ansible.builtin.file:
         path: "{{ alpine_mnt }}/var/cache/apk"
         state: absent
+
+    - name: Ensure chroot mount points exist in Alpine rootfs
+      ansible.builtin.file:
+        path: "{{ alpine_mnt }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - dev
+        - proc
+        - sys
+
+    - name: Bind mount dev into Alpine chroot
+      ansible.builtin.command:
+        cmd: mount --bind /dev {{ alpine_mnt }}/dev
+
+    - name: Bind mount proc into Alpine chroot
+      ansible.builtin.command:
+        cmd: mount --bind /proc {{ alpine_mnt }}/proc
+
+    - name: Bind mount sys into Alpine chroot
+      ansible.builtin.command:
+        cmd: mount --bind /sys {{ alpine_mnt }}/sys
 
     - name: Configure GRUB defaults for Alpine rootfs
       ansible.builtin.template:
