@@ -100,7 +100,7 @@ ansible-playbook build-bootc-vms.yml -e @credentials.env
 5. Uploads it to VMware and creates `todo-web`
 6. SSHes into `todo-web` and:
    - Tells the web app where the database is
-   - Sets up port 80 → 8080 forwarding
+   - Publishes the web app on port 80 (maps to container 8080)
 
 Go get a coffee — image builds can take 10–20+ minutes.
 
@@ -192,7 +192,7 @@ ansible-playbook build-bootc-vms.yml -e @credentials.env --tags db01
 # Web only (run after db01 is done)
 ansible-playbook build-bootc-vms.yml -e @credentials.env --tags web01
 
-# Configure web app only (DB connection + firewall)
+# Configure web app only (DB connection + port 80)
 ansible-playbook build-bootc-vms.yml -e @credentials.env --tags configure
 ```
 
