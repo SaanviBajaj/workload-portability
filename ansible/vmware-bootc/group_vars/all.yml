@@ -56,3 +56,12 @@ podman_become: true
 # Bastion firewalld — forward public HTTP to todo-web (final external access step)
 bastion_firewall_forward_port: 80
 todo_web_service_port: 80
+
+# Cleanup playbook toggles (cleanup-bootc-vms.yml)
+cleanup_vms: true
+cleanup_datastore_vmdks: true
+cleanup_datastore_folder: true
+cleanup_bastion_firewall: true
+cleanup_local_build: true
+cleanup_podman_images: false
+cleanup_remove_masquerade: false
