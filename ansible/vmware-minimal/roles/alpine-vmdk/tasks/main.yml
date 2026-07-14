@@ -150,6 +150,24 @@
         dest: "{{ alpine_mnt }}/usr/local/bin/ensure-dns"
         mode: "0755"
 
+    - name: Deploy Podman network sysctl settings
+      ansible.builtin.template:
+        src: podman-sysctl.conf.j2
+        dest: "{{ alpine_mnt }}/etc/sysctl.d/99-podman.conf"
+        mode: "0644"
+
+    - name: Deploy Podman kernel modules for boot
+      ansible.builtin.template:
+        src: podman-modules.conf.j2
+        dest: "{{ alpine_mnt }}/etc/modules-load.d/podman.conf"
+        mode: "0644"
+
+    - name: Deploy Podman network prepare helper
+      ansible.builtin.template:
+        src: prepare-podman-net.sh.j2
+        dest: "{{ alpine_mnt }}/usr/local/bin/prepare-podman-net"
+        mode: "0755"
+
     - name: Deploy todo-db container start script
       ansible.builtin.template:
         src: todo-db-start.sh.j2

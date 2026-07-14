@@ -21,6 +21,8 @@ alpine_common_packages:
   - ca-certificates
   - podman
   - iptables
+  - netavark
+  - aardvark-dns
   - open-vm-tools
   - open-vm-tools-openrc
   - open-vm-tools-guestinfo

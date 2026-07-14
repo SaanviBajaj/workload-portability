@@ -3,6 +3,7 @@ LOG=/var/log/todo-db.start.log
 {
   echo "=== todo-db startup $(date) ==="
   /usr/local/bin/ensure-dns
+  /usr/local/bin/prepare-podman-net
   sleep 30
   if ! podman pull {{ todo_db_image }}; then
     echo "ERROR: podman pull failed"
