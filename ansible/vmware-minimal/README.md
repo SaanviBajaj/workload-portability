@@ -13,9 +13,13 @@ This is the **minimal** track. It makes **smaller disk images** than the bootc t
 
 **Important:** Container images are **preloaded into Podman storage at build time** on the bastion (no `.tar` left on disk). The VMs do **not** pull from quay.io at boot (quay.io often denies pulls in lab environments).
 
-**Need to copy these files onto the bastion first?** → See [Getting files onto the bastion](#step-1--get-the-files-onto-the-bastion) below (or use the same copy methods as [../vmware-bootc/README-BASTION.md](../vmware-bootc/README-BASTION.md) — just use the `vmware-minimal` folder instead of `vmware-bootc`).
+### Related guides
 
-**Need to tear down VMs and clean up?** → See [Cleanup when you're done](#cleanup-when-youre-done).
+| Guide | When to use it |
+|-------|----------------|
+| [README-SETUP.md](README-SETUP.md) | **Before you start** — bastion prerequisites and **getting files onto the bastion** |
+| [README-CLEANUP.md](README-CLEANUP.md) | **Tear down** VMs, VMDKs, firewall rules, and build files |
+| [README-TROUBLESHOOTING.md](README-TROUBLESHOOTING.md) | **If something goes wrong** — common errors and fixes |
 
 ---
 
@@ -38,54 +42,7 @@ Normally you'd install an OS, install Docker/Podman, configure networking, uploa
 
 Both tracks create the **same VM names** (`todo-db`, `todo-web`). **Do not run both at the same time** — pick one track.
 
-If you already deployed the bootc VMs, clean them up first:
-
-```bash
-cd ~/workload-portability/ansible/vmware-bootc
-sudo ansible-playbook cleanup-bootc-vms.yml -e @credentials.env
-```
-
----
-
-## Before you start
-
-You need to be logged into the **bastion VM** (not your laptop) for all the commands below.
-
-### Check these tools exist
-
-```bash
-ansible-playbook --version
-podman --version
-which losetup sfdisk mkfs.ext4 mount
-```
-
-The playbook needs **podman** plus basic Linux tools (`losetup`, `sfdisk`, `mkfs.ext4`, `mount`). These are usually pre-installed on the bastion.
-
-`qemu-img` is **not** required on the host — if it's missing (common on lab bastions with no dnf repos), the playbook runs it via Podman automatically.
-
-Optional manual check:
-
-```bash
-qemu-img --version    # OK if this works; OK if it doesn't too
-```
-
-### Information you need from the demo environment
-
-| What | Example | Where to find it |
-|------|---------|------------------|
-| **Sandbox ID** | `vn5tw` | Your sandbox name (the `XXXXX` part) |
-| **vCenter password** | (your password) | Demo credentials |
-| **Bastion access** | `ssh demo@<bastion-ip>` | Demo environment |
-
-### Important VMware rule
-
-Your VMs must be created inside:
-
-```
-Workloads/sandbox-XXXXX
-```
-
-If they land somewhere else, you won't see them in your sandbox UI. The playbook handles this via `vm_folder` in your credentials file.
+If you already deployed the bootc VMs, see [README-CLEANUP.md](README-CLEANUP.md).
 
 ---
 
@@ -140,59 +97,9 @@ You don't need to run these separately — the main playbook calls them for you.
 
 ---
 
-## Step 1 — Get the files onto the bastion
-
-SSH into your bastion:
-
-```bash
-ssh BASTION_USER@BASTION_HOST
-```
-
-### Option A — Git pull (easiest if repo is on GitHub)
-
-```bash
-cd ~/workload-portability
-git pull
-cd ansible/vmware-minimal
-```
-
-First time cloning?
-
-```bash
-git clone https://github.com/SaanviBajaj/workload-portability.git
-cd workload-portability/ansible/vmware-minimal
-```
-
-### Option B — Copy from your laptop with scp
-
-On your **laptop**:
-
-```bash
-scp -r ~/Desktop/workload-portability/ansible/vmware-minimal \
-  BASTION_USER@BASTION_HOST:~/workload-portability/ansible/
-```
-
-On the **bastion**:
-
-```bash
-cd ~/workload-portability/ansible/vmware-minimal
-ls build-minimal-vms.yml credentials.env.example README.md
-```
-
-More copy options (rsync, tar, etc.) → [../vmware-bootc/README-BASTION.md](../vmware-bootc/README-BASTION.md) — same steps, swap `vmware-bootc` → `vmware-minimal`.
-
-### Boot order (what happens inside each VM)
-
-1. OpenRC mounts the root filesystem **read-write** and loads VMware NIC drivers (`e1000` / `vmxnet3`)
-2. `local` service runs `00-network-wait` — waits for `eth0`, starts DHCP, fixes DNS
-3. `todo-db` or `todo-web` service starts — runs the preloaded Podman image
-4. On **todo-web only**: iptables redirects port 80 → 8080
-
----
-
 ## Step 2 — Create your credentials file
 
-Still on the bastion:
+Still on the bastion. If you haven't copied the repo yet, start with [README-SETUP.md](README-SETUP.md).
 
 ```bash
 cp credentials.env.example credentials.env
@@ -267,6 +174,8 @@ sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env   # optional: 
 sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
 ```
 
+See [README-CLEANUP.md](README-CLEANUP.md) for cleanup options.
+
 ### What happens (expect 15–30+ minutes)
 
 Here's the order, in plain English:
@@ -282,6 +191,8 @@ Here's the order, in plain English:
 9. **Configures bastion firewall** — forwards port 80 on the bastion → todo-web port 80
 
 You'll see lots of Ansible output scroll by. That's normal. Wait until it says `PLAY RECAP` with no failed tasks.
+
+If something fails, see [README-TROUBLESHOOTING.md](README-TROUBLESHOOTING.md).
 
 ### Where build files end up
 
@@ -454,203 +365,6 @@ sudo ansible-playbook build-minimal-vms.yml -e @credentials.env \
 
 ---
 
-## Cleanup when you're done
-
-Removes VMs, disk images, firewall rules, and local build files.
-
-```bash
-cd ~/workload-portability/ansible/vmware-minimal
-sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env
-```
-
-### What gets removed
-
-| Step | What |
-|------|------|
-| Bastion firewall | HTTP forward rule, port 80 allowance |
-| VMware VMs | Powers off and destroys `todo-web`, then `todo-db` |
-| Datastore | Uploaded VMDKs and the `Workload-Portability/` folder |
-| Bastion disk | `/root/minimal-build/` |
-
-### Cleanup one part at a time
-
-```bash
-# VMs only
-sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags vms
-
-# Datastore VMDKs only
-sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags vmdks
-
-# Bastion firewall only
-sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags bastion-firewall
-
-# Local build files only
-sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags local
-```
-
----
-
-## If something goes wrong
-
-### Recommended first step
-
-Always pull the latest playbook fixes, then do a clean rebuild:
-
-```bash
-cd ~/workload-portability/ansible/vmware-minimal
-git pull
-sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
-```
-
-If quay.io denies pulls during build, copy offline image tars first (see [Offline container images](#offline-container-images-when-quayio-denies-pulls)).
-
-### "Permission denied" or Podman errors
-
-Make sure you're using `sudo`:
-
-```bash
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
-```
-
-### `No package qemu-img available` or `no enabled repositories`
-
-Lab bastions often have **no dnf repos** — you cannot install packages with `dnf`. That's expected.
-
-The playbook handles this by running `qemu-img` inside a Podman container (Alpine image with internet access). Just `git pull` and re-run:
-
-```bash
-cd ~/workload-portability/ansible/vmware-minimal
-git pull
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
-```
-
-Quick test that the Podman fallback works:
-
-```bash
-sudo podman run --rm docker.io/library/alpine:3.20 \
-  sh -ec "apk add --no-cache qemu-img && qemu-img --version"
-```
-
-If that fails, the bastion cannot reach the internet to pull container images.
-
-### Playbook hangs waiting for VM IP
-
-`govc vm.ip` needs **open-vm-tools** running inside the guest. First boot can take **2+ minutes** before the IP appears.
-
-1. Check the VM console in vSphere — did Alpine boot? Look for `[ ok ] Starting todo-db container`
-2. Wait longer per attempt: `-e vm_ip_wait=90s` or more retries: `-e vm_ip_retries=30`
-3. Or set static IPs in `credentials.env` to skip discovery:
-
-```yaml
-db01_static_ip: "192.168.x.x"
-web01_static_ip: "192.168.x.x"
-```
-
-### `todo-db failed to start` on VM console
-
-Common causes and fixes:
-
-| Console message | Cause | Fix |
-|-----------------|-------|-----|
-| `eth0: No such device` / `ifup failed` | VMware NIC not ready at boot | `git pull` and rebuild (network-wait fix) |
-| `Read-only file system` | Root disk not remounted rw | `git pull` and rebuild (OpenRC `root` service fix) |
-| `podman pull failed` | quay.io denied or no internet on VM | `git pull` and rebuild (images preloaded at build time) |
-| `container image missing from VMDK` | VMDK built without preloaded image | Rebuild with `build-minimal-vms.yml` |
-| `no space left on device` during `Load container image` | 600 MB disk too tight for chroot `podman load` (tar + image + temp) | `git pull` — build bind-mounts the tar from bastion and uses bastion `/tmp` for scratch space |
-| `database configuration mismatch` / `podman-preload/libpod` | Podman storage copied from bastion retained wrong paths | `git pull` and rebuild — image is loaded inside the Alpine chroot so paths match `/var/lib/containers/storage` |
-
-On a running VM, try manually on the **todo-db console**:
-
-```sh
-mount -o remount,rw /
-sudo rc-service todo-db restart
-sudo podman ps -a
-```
-
-### quay.io denies pulls (build time)
-
-VMs **must not** pull from quay.io at runtime. Images are preloaded into Podman storage during the bastion build.
-
-If the bastion also cannot pull, use [offline image tars](#offline-container-images-when-quayio-denies-pulls).
-
-### Web app loads but can't reach the database
-
-The web image was built with a **stale `DB_HOST`** (DHCP gave todo-db a different IP after rebuild). Rebuild **both** VMs together, or rebuild web with the current DB IP:
-
-```bash
-DB_IP=$(sudo podman run --rm --env-file /root/minimal-build/govc.env \
-  docker.io/vmware/govc:latest /govc vm.ip todo-db)
-
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env \
-  -e db_host=$DB_IP \
-  --tags web01
-```
-
-On a running **todo-web** VM, you can also fix without rebuild:
-
-```sh
-sudo podman stop todo-web && sudo podman rm todo-web
-sudo podman run -d --name todo-web --network host \
-  -e DB_HOST=<current-todo-db-ip> \
-  -e DB_PORT=5432 \
-  quay.io/rh-ee-sbajaj/todo-web:latest
-sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 8080
-```
-
-### `ss: not found` on todo-web
-
-Harmless. The startup script tries to list open ports with `ss`, which is not installed on minimal Alpine. The container still starts — ignore this message if `podman ps` shows `todo-web` as **Up**.
-
-### `govc.env` not found
-
-When you run with `sudo`, the file is at `/root/minimal-build/govc.env` (not your home directory):
-
-```bash
-sudo podman run --rm --env-file /root/minimal-build/govc.env \
-  docker.io/vmware/govc:latest /govc vm.ip todo-web
-```
-
-### VMDK shows as "Locked" in vSphere
-
-A previous upload may have left a stuck lock. Run cleanup, then re-run:
-
-```bash
-sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags vmdks
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env --tags db01
-```
-
-### VMs already exist from a previous run
-
-Either destroy them first:
-
-```bash
-sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags vms
-```
-
-Or delete them manually in vSphere, then re-run the build playbook.
-
-### Browser URL doesn't load
-
-Work through this list in order:
-
-1. **Internal test first:** `curl -I http://<todo-web-ip>` from bastion — do you get `HTTP/1.1 200`?
-2. **DB port open:** `timeout 3 bash -c "echo >/dev/tcp/<todo-db-ip>/5432"` — must succeed
-3. **Firewall rule:** `sudo firewall-cmd --list-forward-ports` — does `toaddr` match the **current** todo-web IP?
-4. **Re-apply firewall** if the VM IP changed (DHCP):
-
-```bash
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env --tags bastion-firewall
-```
-
-5. **Don't run nginx on the bastion** on port 80 — it fights with `firewalld` forwarding.
-
-### Conflicts with bootc track
-
-Both tracks use VM names `todo-db` and `todo-web`. If you switched tracks, clean up the old one first.
-
----
-
 ## Glossary (words you'll see)
 
 | Term | Plain English |
@@ -664,7 +378,7 @@ Both tracks use VM names `todo-db` and `todo-web`. If you switched tracks, clean
 | **Role** | Reusable chunk of Ansible tasks — `alpine-vmdk`, `vmware-vm`, etc. |
 | **firewalld** | Linux firewall on the bastion — used to forward port 80 to your web VM |
 | **Wildcard DNS** | `*.cluster-XXXXX...` URLs all resolve to the bastion public IP |
-| **Embedded image** | Container image saved into the VMDK at build time — VMs load it locally at boot |
+| **Preloaded image** | Container image loaded into Podman storage at build time — VMs run it locally at boot |
 | **Host networking** | Podman runs containers with `--network host` instead of port mapping |
 | **streamOptimized** | VMDK format VMware prefers for uploads — single file, compact |
 
@@ -682,6 +396,9 @@ Both tracks use VM names `todo-db` and `todo-web`. If you switched tracks, clean
 | `roles/alpine-vmdk/` | Builds the small Alpine disk |
 | `roles/vmware-vm/` | Uploads disk and creates VM in VMware |
 | `roles/bastion-firewall/` | Sets up browser access via bastion |
+| `README-SETUP.md` | Bastion prerequisites and getting files onto the bastion |
+| `README-CLEANUP.md` | Teardown guide |
+| `README-TROUBLESHOOTING.md` | Common errors and fixes |
 
 Build output (with `sudo`): `/root/minimal-build/`
 
@@ -712,8 +429,4 @@ Then open in your laptop browser:
 http://todo-web.cluster-XXXXX.dyn.redhatworkshops.io
 ```
 
-Cleanup when finished:
-
-```bash
-sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env
-```
+Cleanup when finished — see [README-CLEANUP.md](README-CLEANUP.md).
