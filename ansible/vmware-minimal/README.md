@@ -11,7 +11,7 @@ This playbook builds and deploys two **small** VMs for the todo app demo:
 
 This is the **minimal** track. It makes **smaller disk images** than the bootc track (~1 GB vs ~1.7 GB per VM).
 
-**Important:** Container images are **embedded in the VMDK at build time** on the bastion. The VMs do **not** pull from quay.io at boot (quay.io often denies pulls in lab environments).
+**Important:** Container images are **preloaded into Podman storage at build time** on the bastion (no `.tar` left on disk). The VMs do **not** pull from quay.io at boot (quay.io often denies pulls in lab environments).
 
 **Need to copy these files onto the bastion first?** → See [Getting files onto the bastion](#step-1--get-the-files-onto-the-bastion) below (or use the same copy methods as [../vmware-bootc/README-BASTION.md](../vmware-bootc/README-BASTION.md) — just use the `vmware-minimal` folder instead of `vmware-bootc`).
 
@@ -33,7 +33,7 @@ Normally you'd install an OS, install Docker/Podman, configure networking, uploa
 | | Bootc track (`vmware-bootc`) | **Minimal track (this guide)** |
 |---|------------------------------|--------------------------------|
 | OS inside the VM | Full CentOS Stream 9 bootc image | Tiny Alpine Linux |
-| Disk size | ~1.7 GB per VM | **~1 GB per VM** (embedded container images) |
+| Disk size | ~1.7 GB per VM | **~1 GB per VM** (preloaded container images) |
 | Good when | You want a "real" RHEL-like VM | You want small disks for demos/migration |
 
 Both tracks create the **same VM names** (`todo-db`, `todo-web`). **Do not run both at the same time** — pick one track.
@@ -104,20 +104,20 @@ The playbook builds these on the bastion using:
 
 - **Alpine Linux** — a very small Linux distro (not a full CentOS install)
 - **Podman** — runs the actual todo app containers inside the VM
-- **Embedded container images** — `todo-db` / `todo-web` images are saved into the disk at build time
+- **Preloaded container images** — `todo-db` / `todo-web` images are loaded into Podman storage during the bastion build (tar archives are deleted)
 - **qemu-img** — creates and converts the virtual disk
 
 ### What's inside each VM?
 
 **todo-db VM:**
 - Tiny Alpine Linux (just enough to boot and run Podman)
-- On startup, loads the embedded `todo-db` image from `/var/images/todo-db.tar` and runs PostgreSQL on port **5432**
+- On startup, runs the preloaded `todo-db` image from local Podman storage (PostgreSQL on port **5432**)
 - Uses **host networking** (`--network host`) — no bridge/port-map setup needed
 - No SSH login — use the **vSphere web console** for troubleshooting
 
 **todo-web VM:**
 - Tiny Alpine Linux + SSH (user `demo` / password `demo`)
-- On startup, loads the embedded `todo-web` image from `/var/images/todo-web.tar`
+- On startup, runs the preloaded `todo-web` image from local Podman storage
 - Runs the web app on port **8080** with **host networking**, and redirects incoming port **80 → 8080** via iptables
 - `DB_HOST` is **baked into the disk at build time** — the playbook discovers todo-db's IP before building the web image
 
@@ -185,7 +185,7 @@ More copy options (rsync, tar, etc.) → [../vmware-bootc/README-BASTION.md](../
 
 1. OpenRC mounts the root filesystem **read-write** and loads VMware NIC drivers (`e1000` / `vmxnet3`)
 2. `local` service runs `00-network-wait` — waits for `eth0`, starts DHCP, fixes DNS
-3. `todo-db` or `todo-web` service starts — loads embedded image, runs Podman container
+3. `todo-db` or `todo-web` service starts — runs the preloaded Podman image
 4. On **todo-web only**: iptables redirects port 80 → 8080
 
 ---
@@ -272,11 +272,11 @@ sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
 Here's the order, in plain English:
 
 1. **Installs build tools** on the bastion (if missing)
-2. **Builds todo-db disk** — Alpine rootfs + embedded `todo-db` container image
+2. **Builds todo-db disk** — Alpine rootfs + preloaded `todo-db` container image in Podman storage
 3. **Uploads todo-db disk** to VMware datastore
 4. **Creates todo-db VM** in your sandbox folder and powers it on
 5. **Waits for todo-db IP** via VMware Tools (pauses ~2 minutes on first boot)
-6. **Builds todo-web disk** — Alpine rootfs + embedded `todo-web` image with `DB_HOST` set to the IP from step 5
+6. **Builds todo-web disk** — Alpine rootfs + preloaded `todo-web` image with `DB_HOST` set to the IP from step 5
 7. **Uploads todo-web disk** and **creates todo-web VM**
 8. **Waits for todo-web IP**
 9. **Configures bastion firewall** — forwards port 80 on the bastion → todo-web port 80
@@ -555,8 +555,8 @@ Common causes and fixes:
 |-----------------|-------|-----|
 | `eth0: No such device` / `ifup failed` | VMware NIC not ready at boot | `git pull` and rebuild (network-wait fix) |
 | `Read-only file system` | Root disk not remounted rw | `git pull` and rebuild (OpenRC `root` service fix) |
-| `podman pull failed` | quay.io denied or no internet on VM | `git pull` and rebuild (embedded images fix) |
-| `Loading embedded image from /var/images/...` | Working correctly | No action needed |
+| `podman pull failed` | quay.io denied or no internet on VM | `git pull` and rebuild (images preloaded at build time) |
+| `container image missing from VMDK` | VMDK built without preloaded image | Rebuild with `build-minimal-vms.yml` |
 
 On a running VM, try manually on the **todo-db console**:
 
@@ -568,7 +568,7 @@ sudo podman ps -a
 
 ### quay.io denies pulls (build time)
 
-VMs **must not** pull from quay.io at runtime. Images are embedded during the bastion build.
+VMs **must not** pull from quay.io at runtime. Images are preloaded into Podman storage during the bastion build.
 
 If the bastion also cannot pull, use [offline image tars](#offline-container-images-when-quayio-denies-pulls).
 

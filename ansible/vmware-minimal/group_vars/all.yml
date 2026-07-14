@@ -23,7 +23,7 @@ datastore_base: "Workload-Portability"
 db01_vm_name: "todo-db"
 web01_vm_name: "todo-web"
 
-# Container images — embedded in VMDK at build time (VMs cannot pull from quay.io at boot)
+# Container images — preloaded into Podman storage at build time (VMs cannot pull from quay.io at boot)
 govc_image: "docker.io/vmware/govc:latest"
 todo_db_image: "quay.io/rh-ee-sbajaj/todo-db:latest"
 todo_web_image: "quay.io/rh-ee-sbajaj/todo-web:latest"
