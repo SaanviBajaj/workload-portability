@@ -29,7 +29,6 @@ alpine_static_gateway: ""
 
 alpine_web_packages:
   - openssh
-  - openssh-server-sftp-server
   - shadow
   - sudo
 
