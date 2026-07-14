@@ -69,11 +69,8 @@
         cmd: mkfs.ext4 -F -L alpine-root {{ alpine_loop_part }}
 
     - name: Mount Alpine root partition
-      ansible.builtin.mount:
-        path: "{{ alpine_mnt }}"
-        src: "{{ alpine_loop_part }}"
-        fstype: ext4
-        state: mounted
+      ansible.builtin.command:
+        cmd: mount -t ext4 {{ alpine_loop_part }} {{ alpine_mnt }}
 
     - name: Bootstrap Alpine base rootfs
       ansible.builtin.command:
@@ -235,9 +232,8 @@
 
   always:
     - name: Unmount Alpine root partition
-      ansible.builtin.mount:
-        path: "{{ alpine_mnt }}"
-        state: unmounted
+      ansible.builtin.command:
+        cmd: umount {{ alpine_mnt }}
       failed_when: false
 
     - name: Detach loop device from raw disk
