@@ -557,6 +557,7 @@ Common causes and fixes:
 | `Read-only file system` | Root disk not remounted rw | `git pull` and rebuild (OpenRC `root` service fix) |
 | `podman pull failed` | quay.io denied or no internet on VM | `git pull` and rebuild (images preloaded at build time) |
 | `container image missing from VMDK` | VMDK built without preloaded image | Rebuild with `build-minimal-vms.yml` |
+| `no space left on device` during `Load container image` | 600 MB disk too tight for chroot `podman load` (tar + image + temp) | `git pull` — build loads image on bastion disk, then copies Podman storage into the VMDK |
 
 On a running VM, try manually on the **todo-db console**:
 
