@@ -1,2 +1,11 @@
 #!/bin/sh
+# VMware Tools needs a guest IP before govc vm.ip can see it.
+i=0
+while [ "$i" -lt 30 ]; do
+  if ip -4 addr show eth0 2>/dev/null | grep -q 'inet '; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
 rc-service open-vm-tools start

@@ -36,6 +36,7 @@ alpine_web_packages:
 alpine_openrc_services:
   - { service: hostname, runlevel: boot }
   - { service: local, runlevel: default }
+  - { service: open-vm-tools, runlevel: default }
 
 alpine_web_openrc_services:
   - { service: sshd, runlevel: default }

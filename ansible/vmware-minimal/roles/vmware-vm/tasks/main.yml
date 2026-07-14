@@ -41,6 +41,7 @@
       -c {{ vm_cpus }}
       -m {{ vm_memory_mb }}
       -net "{{ vm_network }}"
+      -net.adapter {{ vm_net_adapter }}
       -folder "{{ vm_folder }}"
       -disk "{{ vm_vmdk_final }}"
       -disk.controller {{ vm_disk_controller }}
@@ -66,7 +67,7 @@
     - name: Wait for VM DHCP before IP discovery
       ansible.builtin.pause:
         seconds: "{{ vm_first_boot_pause }}"
-        prompt: "Waiting {{ vm_first_boot_pause }}s for {{ vm_name }} to boot and get DHCP..."
+        prompt: "Waiting {{ vm_first_boot_pause }}s for {{ vm_name }} to boot, get DHCP, and start VMware Tools..."
 
     - name: Get VM ethernet MAC address
       ansible.builtin.command:
@@ -79,7 +80,7 @@
       ansible.builtin.set_fact:
         vm_mac: "{{ vm_nic_info.stdout | regex_search('([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}') | default('', true) }}"
 
-    - name: Discover VM IP via ARP neighbor table (fast path)
+    - name: Quick ARP lookup when bastion shares the VM segment (optional fast path)
       ansible.builtin.shell: |
         set -o pipefail
         MAC="{{ vm_mac | lower }}"
@@ -91,6 +92,7 @@
       retries: "{{ vm_arp_retries }}"
       delay: "{{ vm_arp_retry_delay }}"
       changed_when: false
+      failed_when: false
       when: vm_mac | length > 0
 
     - name: Report ARP-discovered VM IP
@@ -98,7 +100,7 @@
         msg: "Discovered {{ vm_name }} IP {{ vm_arp_ip.stdout | trim }} via ARP (MAC {{ vm_mac }})."
       when: vm_arp_ip.stdout | default('') | trim | length > 0
 
-    - name: Wait for VM IP via VMware Tools (slow path)
+    - name: Wait for VM IP via VMware Tools (primary path for DHCP)
       ansible.builtin.command:
         cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ vm_name }}"
       register: vmware_vm_ip
@@ -106,7 +108,9 @@
       delay: "{{ vm_ip_retry_delay }}"
       until: vmware_vm_ip.stdout | trim | length > 0
       changed_when: false
-      when: vm_arp_ip.stdout | default('') | trim | length == 0
+      when: >-
+        vm_arp_ip is skipped or
+        (vm_arp_ip.stdout | default('') | trim | length == 0)
 
     - name: Report VMware Tools-discovered VM IP
       ansible.builtin.debug:
@@ -120,7 +124,10 @@
         discovered_vm_ip: >-
           {{
             (vm_arp_ip.stdout | default('') | trim)
-            if (vm_arp_ip.stdout | default('') | trim | length > 0)
+            if (
+              vm_arp_ip is not skipped and
+              (vm_arp_ip.stdout | default('') | trim | length > 0)
+            )
             else (vmware_vm_ip.stdout | default('') | trim)
           }}
 
@@ -132,7 +139,9 @@
       ansible.builtin.fail:
         msg: >-
           Could not discover IP for {{ vm_name }}.
-          ARP (MAC {{ vm_mac | default('unknown') }}) and VMware Tools both failed.
-          Fastest fix: set db01_static_ip / web01_static_ip in credentials.env and re-run
-          with --tags db01 or --tags web01.
+          VMware Tools (govc vm.ip) and ARP (MAC {{ vm_mac | default('unknown') }}) both failed.
+          Rebuild the VMDK after git pull, confirm DHCP on {{ vm_network }}, and check the VM console:
+            ip link && ip addr
+          If eth0 has an IP but discovery still fails, verify open-vm-tools is running:
+            rc-service open-vm-tools status
       when: discovered_vm_ip | length == 0

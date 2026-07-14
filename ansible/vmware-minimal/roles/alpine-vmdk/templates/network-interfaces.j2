@@ -4,6 +4,7 @@ iface lo inet loopback
 auto eth0
 {% if alpine_static_ip | length > 0 %}
 iface eth0 inet static
+  pre-up modprobe vmxnet3 2>/dev/null || modprobe e1000 2>/dev/null || true
   address {{ alpine_static_ip }}
   netmask {{ alpine_static_netmask }}
 {% if alpine_static_gateway | length > 0 %}
@@ -11,4 +12,5 @@ iface eth0 inet static
 {% endif %}
 {% else %}
 iface eth0 inet dhcp
+  pre-up modprobe vmxnet3 2>/dev/null || modprobe e1000 2>/dev/null || true
 {% endif %}

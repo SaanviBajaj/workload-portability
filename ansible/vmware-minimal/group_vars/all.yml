@@ -57,13 +57,18 @@ web01_static_ip: ""
 alpine_static_netmask: "255.255.255.0"
 alpine_static_gateway: ""
 
-# Per-attempt wait passed to govc vm.ip -wait= (keep short; Ansible retries below)
-vm_ip_wait: "30s"
-vm_ip_retries: 18
-vm_ip_retry_delay: 10
-vm_first_boot_pause: 30
-vm_arp_retries: 36
-vm_arp_retry_delay: 10
+# VMware NIC type for govc vm.create (e1000 is the most compatible with minimal Alpine)
+vm_net_adapter: e1000
+
+# Per-attempt wait passed to govc vm.ip -wait=
+vm_ip_wait: "45s"
+vm_ip_retries: 24
+vm_ip_retry_delay: 15
+# VM needs ~60s for eth0 + ~45s for DHCP + vmtools before govc vm.ip works
+vm_first_boot_pause: 120
+# ARP only works when bastion shares L2 with the VM segment; keep this short
+vm_arp_retries: 6
+vm_arp_retry_delay: 5
 
 # Bastion firewalld — forward public HTTP to todo-web
 bastion_firewall_forward_port: 80
