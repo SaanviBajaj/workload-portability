@@ -2,12 +2,12 @@
 
 This playbook builds and deploys two VMs for the todo app demo:
 
-| VM name | What it does |
-|---------|--------------|
+| VM name (default) | What it does |
+|-------------------|--------------|
 | `todo-db` | Database (PostgreSQL) |
 | `todo-web` | Web app |
 
-**Run everything on your bastion VM** (the VM from the demo environment). You do not run this from your laptop unless that laptop *is* the bastion.
+**Run everything on your bastion VM** (the VM from the demo environment).
 
 **Need to copy these files onto the bastion first?** → See [README-BASTION.md](README-BASTION.md)
 
@@ -15,7 +15,7 @@ This playbook builds and deploys two VMs for the todo app demo:
 
 ## Before you start
 
-Make sure you are logged into the **bastion VM**, then check these are installed:
+On the **bastion VM**, check these are installed:
 
 ```bash
 ansible-playbook --version
@@ -25,185 +25,242 @@ podman --version
 You also need:
 
 - Your **vCenter password** (from the demo environment)
-- Your **sandbox ID** (looks like `sandbox-6qtqn` — yours will be different)
+- Your **sandbox ID** (e.g. `sandbox-vn5tw` — yours will differ)
+- VMs must land in **`Workloads/sandbox-XXXXX`** in vSphere to be visible in your sandbox
+
+---
+
+## What the playbook builds
+
+Each VM boots from a **CentOS Stream 9 bootc** disk image built on the bastion.
+
+| Output | Size (approx.) |
+|--------|----------------|
+| `db01/output/vmdk/disk.vmdk` | **~1.7 GB** (thin provisioned) |
+| `web01/output/vmdk/disk.vmdk` | **~1.7 GB** (thin provisioned) |
+
+VM sizing defaults: **2 vCPU**, **4 GB RAM**, `pvscsi` disk controller.
 
 ---
 
 ## Step 1 — Get the files onto the bastion
 
-If the playbook isn't on the bastion yet, follow **[README-BASTION.md](README-BASTION.md)** first.
-
-Then go to the playbook folder:
-
 ```bash
-cd ~/workload-portability/ansible/vmware-bootc
+cd ~/workload-portability
+git pull
+cd ansible/vmware-bootc
 ```
 
-If you used a different path when copying, adjust accordingly. You should see `build-bootc-vms.yml` and `credentials.env.example`.
+First time? See **[README-BASTION.md](README-BASTION.md)**.
 
 ---
 
 ## Step 2 — Create your credentials file
 
-Copy the example file:
-
 ```bash
 cp credentials.env.example credentials.env
-```
-
-Open it for editing:
-
-```bash
 vi credentials.env
 ```
 
-### What to change
-
-Replace every `XXXXX` with **your** sandbox details. At minimum, change these lines:
+Replace every `XXXXX` with your sandbox values:
 
 ```yaml
-govc_username: "sandbox-XXXXX@demo"      # → your sandbox username
-govc_password: "YourPasswordHere"        # → your real vCenter password
-govc_datastore: "workload_share_XXXXX"   # → your datastore name
+govc_username: "sandbox-XXXXX@demo"
+govc_password: "YourPasswordHere"
+govc_datastore: "workload_share_XXXXX"
 
-vm_network: "segment-sandbox-XXXXX"      # → your network segment
-vm_folder: "/SDDC-Datacenter/vm/Workloads/sandbox-XXXXX"  # → your VM folder
+vm_network: "segment-sandbox-XXXXX"
+vm_folder: "/SDDC-Datacenter/vm/Workloads/sandbox-XXXXX"
+datastore_base: "Workload-Portability"    # or your datastore folder name
 ```
 
-**Leave these as-is** unless you want different VM names:
+Default VM names (change only if you want different names):
 
 ```yaml
 db01_vm_name: "todo-db"
 web01_vm_name: "todo-web"
 ```
 
-Save and exit (`:wq` in vi).
-
-> **Important:** `credentials.env` contains your real password. It is already in `.gitignore` — do not commit or share it.
+> **Important:** `credentials.env` has your real password. Do not commit it.
 
 ---
 
 ## Step 3 — Run the playbook
 
-This one command does everything (build images, upload disks, create VMs, configure the web app):
+Use `sudo` so Podman can build images and write to `/root/bootc-build/`:
 
 ```bash
-ansible-playbook build-bootc-vms.yml -e @credentials.env
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env
 ```
 
-### What happens (takes a while)
+### What happens (10–20+ minutes)
 
-1. Builds the **database** VM disk image
-2. Uploads it to VMware and creates `todo-db`
-3. Waits for the database VM to get an IP address
-4. Builds the **web** VM disk image
-5. Uploads it to VMware and creates `todo-web`
-6. SSHes into `todo-web` and tells the web app where the database is
-7. Opens bastion `firewalld` port 80 forward to `todo-web` (external access)
-
-Go get a coffee — image builds can take 10–20+ minutes.
+1. Builds **todo-db** bootc image (~1.7 GB VMDK) and uploads to vSphere
+2. Creates `todo-db` VM in your sandbox folder
+3. Discovers DB IP (via VMware Tools) and builds **todo-web** image (~1.7 GB VMDK)
+4. Creates `todo-web` VM
+5. SSHes into `todo-web` — sets `DB_HOST` / `DB_PORT` for the app
+6. Configures **bastion `firewalld`** — forwards port **80 → todo-web:80** for external browser access
 
 ---
 
 ## Step 4 — Check it worked
 
-### In VMware (vSphere)
+### VMs in vSphere
 
-Look for two new VMs in your sandbox folder:
+Under **Workloads → sandbox-XXXXX** you should see:
 
 - `todo-db`
 - `todo-web`
 
-Both should be **powered on**.
-
-### From the bastion
-
-Get the web VM IP:
+### From the bastion (internal test)
 
 ```bash
-podman run --rm --env-file ~/bootc-build/govc.env \
-  docker.io/vmware/govc:latest /govc vm.ip todo-web
+curl http://$(sudo podman run --rm --env-file /root/bootc-build/govc.env \
+  docker.io/vmware/govc:latest /govc vm.ip todo-web)
 ```
 
-Open that IP in a browser (port 80). You should see the todo app.
+You should see Todo App HTML.
+
+### Firewall rule on bastion
+
+```bash
+sudo firewall-cmd --list-forward-ports
+```
+
+Should show something like:
+
+```
+port=80:proto=tcp:toport=80:toaddr=192.168.x.x
+```
+
+---
+
+## Step 5 — Access the app in a browser
+
+Wildcard DNS for your sandbox points at the **bastion**:
+
+```
+*.cluster-XXXXX.dyn.redhatworkshops.io  →  bastion public IP
+```
+
+Use your **web VM name** in the URL:
+
+```
+http://YOUR_WEB_VM_NAME.cluster-XXXXX.dyn.redhatworkshops.io
+```
+
+### Example
+
+If your web VM is named `todo-web` and sandbox is `vn5tw`:
+
+```
+http://todo-web.cluster-vn5tw.dyn.redhatworkshops.io
+```
+
+Replace:
+- `YOUR_WEB_VM_NAME` → value of `web01_vm_name` in `credentials.env` (default: `todo-web`)
+- `XXXXX` → your sandbox ID (e.g. `vn5tw`)
+
+### How it works
+
+```
+Browser
+  → todo-web.cluster-vn5tw.dyn.redhatworkshops.io
+  → bastion public IP :80
+  → bastion firewalld forward
+  → todo-web VM :80
+  → Todo App
+```
+
+> **Do not** use the private IP (`192.168.x.x`) in your laptop browser — that only works inside the lab network.
 
 ### SSH into the web VM (optional)
 
 ```bash
-ssh demo@<todo-web-ip>
+ssh demo@<todo-web-private-ip>
 # password: demo
+```
+
+---
+
+## Optional: run one stage at a time
+
+```bash
+# Database only
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env --tags db01
+
+# Web only (after db01)
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env --tags web01
+
+# DB connection config on todo-web only
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env --tags configure
+
+# Bastion firewall forward only (e.g. after VM IP changed)
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env --tags bastion-firewall
+```
+
+If `todo-db` already exists:
+
+```bash
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env \
+  -e db_host=<your-todo-db-ip> \
+  --tags web01,configure,bastion-firewall
 ```
 
 ---
 
 ## If something goes wrong
 
-### "Permission denied" during podman build
-
-Your user needs sudo. The playbook uses sudo by default. Make sure you can run:
+### Podman permission errors
 
 ```bash
-sudo podman ps
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env
 ```
 
 ### Playbook hangs waiting for VM IP
 
-VMware Tools may be slow to start. Wait a few minutes, or re-run with a longer timeout:
-
 ```bash
-ansible-playbook build-bootc-vms.yml -e @credentials.env -e vm_ip_wait=10m
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env -e vm_ip_wait=10m
 ```
 
-### Web app loads but can't reach the database
-
-Re-run just the configure step (replace the IP with your `todo-db` IP):
+Or set the DB IP manually:
 
 ```bash
-ansible-playbook build-bootc-vms.yml -e @credentials.env \
-  -e db_host=192.168.108.25 \
-  --tags configure
+# in credentials.env:
+db_host: "192.168.x.x"
+```
+
+### `govc.env` not found (ran with sudo)
+
+The env file lives at `/root/bootc-build/govc.env` when using sudo:
+
+```bash
+sudo podman run --rm --env-file /root/bootc-build/govc.env \
+  docker.io/vmware/govc:latest /govc vm.ip todo-web
 ```
 
 ### VMDK shows as "Locked" in vSphere
 
-Delete the stuck VMDK in vSphere, then re-run:
+Delete the stuck VMDK, then re-run `--tags db01` or `--tags web01`.
+
+### VMs already exist
+
+Delete VMs (and VMDKs) in vSphere, then re-run the full playbook.
+
+### Browser URL doesn't load
+
+1. Confirm bastion firewall rule: `sudo firewall-cmd --list-forward-ports`
+2. Confirm app works internally: `curl http://<todo-web-ip>` from bastion
+3. Re-run firewall step if VM IP changed: `--tags bastion-firewall`
+4. Do **not** run a separate nginx proxy on port 80 — it conflicts with `firewalld` forwarding
+
+### Web app can't reach the database
 
 ```bash
-ansible-playbook build-bootc-vms.yml -e @credentials.env --tags db01
-# or
-ansible-playbook build-bootc-vms.yml -e @credentials.env --tags web01
-```
-
-### VMs already exist from a previous run
-
-The playbook skips VM creation if `todo-db` / `todo-web` already exist. To start fresh, delete the VMs (and their VMDKs) in vSphere first, then re-run Step 3.
-
----
-
-## Optional: run one VM at a time
-
-You usually don't need this, but if you want to go step by step:
-
-```bash
-# Database only
-ansible-playbook build-bootc-vms.yml -e @credentials.env --tags db01
-
-# Web only (run after db01 is done)
-ansible-playbook build-bootc-vms.yml -e @credentials.env --tags web01
-
-# Configure web app only (DB connection)
-ansible-playbook build-bootc-vms.yml -e @credentials.env --tags configure
-
-# Bastion firewall only (port 80 forward to todo-web)
-ansible-playbook build-bootc-vms.yml -e @credentials.env --tags bastion-firewall
-```
-
-If `todo-db` already exists and you only need to build/configure the web tier:
-
-```bash
-ansible-playbook build-bootc-vms.yml -e @credentials.env \
-  -e db_host=<your-todo-db-ip> \
-  --tags web01,configure
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env \
+  -e db_host=<todo-db-ip> \
+  --tags configure
 ```
 
 ---
@@ -212,22 +269,27 @@ ansible-playbook build-bootc-vms.yml -e @credentials.env \
 
 | File | What it is |
 |------|------------|
-| `build-bootc-vms.yml` | The main playbook — you run this |
-| `credentials.env` | **Your** secrets and sandbox settings (you create this) |
-| `credentials.env.example` | Template — safe to commit, has no real password |
-| `group_vars/all.yml` | Default settings (placeholders only) |
+| `build-bootc-vms.yml` | Main playbook |
+| `credentials.env` | Your secrets (create from example) |
+| `credentials.env.example` | Safe template |
+| `group_vars/all.yml` | Defaults (placeholders) |
 
-Build output lands in `~/bootc-build/` on the bastion. You don't need to touch it manually.
+Build output: `~/bootc-build/` (or `/root/bootc-build/` if using `sudo`).
 
 ---
 
-## Quick reference — the whole process
+## Quick reference
 
 ```bash
 cd ~/workload-portability/ansible/vmware-bootc
+git pull
 cp credentials.env.example credentials.env
-vi credentials.env                    # fill in your sandbox ID + password
-ansible-playbook build-bootc-vms.yml -e @credentials.env
+vi credentials.env
+sudo ansible-playbook build-bootc-vms.yml -e @credentials.env
 ```
 
-That's it.
+Then open in a browser:
+
+```
+http://YOUR_WEB_VM_NAME.cluster-XXXXX.dyn.redhatworkshops.io
+```
