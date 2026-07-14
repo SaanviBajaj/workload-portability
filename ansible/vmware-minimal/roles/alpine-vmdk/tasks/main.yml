@@ -238,11 +238,15 @@
       ansible.builtin.command:
         cmd: mount --bind /sys {{ alpine_mnt }}/sys
 
+    - name: Configure GRUB defaults for Alpine rootfs
+      ansible.builtin.template:
+        src: grub-default.j2
+        dest: "{{ alpine_mnt }}/etc/default/grub"
+        mode: "0644"
+
     - name: Install GRUB bootloader in Alpine chroot
       ansible.builtin.command:
-        cmd: >-
-          chroot {{ alpine_mnt }} grub-install --target=i386-pc --boot-directory=/boot
-          --modules='part_msdos ext2 ext4' {{ alpine_loop }}
+        cmd: chroot {{ alpine_mnt }} grub-install --target=i386-pc --boot-directory=/boot {{ alpine_loop }}
 
     - name: Generate GRUB configuration in Alpine chroot
       ansible.builtin.command:
