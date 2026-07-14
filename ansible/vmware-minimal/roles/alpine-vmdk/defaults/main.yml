@@ -18,6 +18,7 @@ alpine_common_packages:
   - e2fsprogs
   - grub-bios
   - linux-virt
+  - ca-certificates
   - podman
   - iptables
   - open-vm-tools

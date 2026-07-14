@@ -144,6 +144,12 @@
         state: directory
         mode: "0755"
 
+    - name: Deploy DNS helper for DHCP environments
+      ansible.builtin.template:
+        src: ensure-dns.sh.j2
+        dest: "{{ alpine_mnt }}/usr/local/bin/ensure-dns"
+        mode: "0755"
+
     - name: Deploy todo-db container start script
       ansible.builtin.template:
         src: todo-db-start.sh.j2

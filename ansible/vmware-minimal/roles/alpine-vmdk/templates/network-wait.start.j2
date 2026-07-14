@@ -23,6 +23,7 @@ rc-service networking start
 j=0
 while [ "$j" -lt 45 ]; do
   if ip -4 addr show eth0 | grep -q 'inet '; then
+    /usr/local/bin/ensure-dns
     exit 0
   fi
   j=$((j + 1))
@@ -31,4 +32,5 @@ done
 
 # Last resort: run udhcpc directly if ifupdown-ng did not get a lease.
 udhcpc -i eth0 -t 5 -T 3 -n -q 2>/dev/null || true
+/usr/local/bin/ensure-dns
 exit 0
