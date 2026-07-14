@@ -30,6 +30,7 @@ alpine_static_gateway: ""
 
 alpine_web_packages:
   - openssh
+  - openssh-server-common-openrc
   - shadow
   - sudo
 
@@ -40,6 +41,7 @@ alpine_openrc_services:
   - { service: open-vm-tools, runlevel: default }
 
 alpine_web_openrc_services:
+  - { service: agetty.tty1, runlevel: default }
   - { service: sshd, runlevel: default }
 
 # SELinux on lab bastions blocks writes without label=disable

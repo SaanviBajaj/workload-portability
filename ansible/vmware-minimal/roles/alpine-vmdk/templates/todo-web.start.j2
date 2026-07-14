@@ -1,9 +1,21 @@
 #!/bin/sh
-# Defer app pull until network and VMware Tools are up (local.d runs 99-* last).
-sleep 30
-podman pull {{ todo_web_image }} || true
-podman run -d --replace --name todo-web \
-  -p 80:8080 \
-  -e DB_HOST={{ db_host }} \
-  -e DB_PORT={{ db_port }} \
-  {{ todo_web_image }}
+LOG=/var/log/todo-web.start.log
+{
+  echo "=== todo-web startup $(date) ==="
+  echo "DB_HOST={{ db_host }} DB_PORT={{ db_port }}"
+  sleep 30
+  if ! podman pull {{ todo_web_image }}; then
+    echo "ERROR: podman pull failed"
+    exit 1
+  fi
+  if ! podman run -d --replace --name todo-web \
+    -p 80:8080 \
+    -e DB_HOST={{ db_host }} \
+    -e DB_PORT={{ db_port }} \
+    {{ todo_web_image }}; then
+    echo "ERROR: podman run failed"
+    exit 1
+  fi
+  echo "=== todo-web started $(date) ==="
+  podman ps -a
+} >>"$LOG" 2>&1

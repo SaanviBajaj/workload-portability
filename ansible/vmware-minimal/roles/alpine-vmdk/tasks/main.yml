@@ -164,6 +164,13 @@
         dest: "{{ alpine_mnt }}/etc/local.d/01-vmtools.start"
         mode: "0755"
 
+    - name: Deploy SSH startup helper
+      ansible.builtin.template:
+        src: sshd.start.j2
+        dest: "{{ alpine_mnt }}/etc/local.d/02-sshd.start"
+        mode: "0755"
+      when: alpine_role == 'web'
+
     - name: Create demo SSH user in Alpine rootfs
       ansible.builtin.command:
         cmd: >-
