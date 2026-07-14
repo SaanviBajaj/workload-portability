@@ -138,17 +138,37 @@
         state: directory
         mode: "0755"
 
-    - name: Deploy todo-db OpenRC startup script
+    - name: Ensure Alpine local bin directory exists
+      ansible.builtin.file:
+        path: "{{ alpine_mnt }}/usr/local/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy todo-db container start script
       ansible.builtin.template:
-        src: todo-db.start.j2
-        dest: "{{ alpine_mnt }}/etc/local.d/99-todo-db.start"
+        src: todo-db-start.sh.j2
+        dest: "{{ alpine_mnt }}/usr/local/bin/todo-db-start"
         mode: "0755"
       when: alpine_role == 'db'
 
-    - name: Deploy todo-web OpenRC startup script
+    - name: Deploy todo-db OpenRC service
       ansible.builtin.template:
-        src: todo-web.start.j2
-        dest: "{{ alpine_mnt }}/etc/local.d/99-todo-web.start"
+        src: todo-db.openrc.j2
+        dest: "{{ alpine_mnt }}/etc/init.d/todo-db"
+        mode: "0755"
+      when: alpine_role == 'db'
+
+    - name: Deploy todo-web container start script
+      ansible.builtin.template:
+        src: todo-web-start.sh.j2
+        dest: "{{ alpine_mnt }}/usr/local/bin/todo-web-start"
+        mode: "0755"
+      when: alpine_role == 'web'
+
+    - name: Deploy todo-web OpenRC service
+      ansible.builtin.template:
+        src: todo-web.openrc.j2
+        dest: "{{ alpine_mnt }}/etc/init.d/todo-web"
         mode: "0755"
       when: alpine_role == 'web'
 
@@ -232,7 +252,10 @@
         cmd: >-
           {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
           chroot /mnt rc-update add {{ item.service }} {{ item.runlevel }}
-      loop: "{{ alpine_openrc_services + (alpine_web_openrc_services if alpine_role == 'web' else []) }}"
+      loop: >-
+        {{ alpine_openrc_services +
+           (alpine_db_openrc_services if alpine_role == 'db' else []) +
+           (alpine_web_openrc_services if alpine_role == 'web' else []) }}
 
     - name: Generate Alpine initramfs
       ansible.builtin.shell: |

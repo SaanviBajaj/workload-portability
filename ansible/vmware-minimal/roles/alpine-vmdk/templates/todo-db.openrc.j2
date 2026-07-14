@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+
+description="Todo database container"
+
+depend() {
+    need networking
+    after open-vm-tools
+}
+
+start() {
+    ebegin "Starting todo-db container"
+    /usr/local/bin/todo-db-start
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping todo-db container"
+    podman stop todo-db 2>/dev/null
+    eend $?
+}

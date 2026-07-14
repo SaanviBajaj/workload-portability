@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+
+description="Todo web application container"
+
+depend() {
+    need networking
+    after local open-vm-tools
+}
+
+start() {
+    ebegin "Starting todo-web container"
+    /usr/local/bin/todo-web-start
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping todo-web container"
+    podman stop todo-web 2>/dev/null
+    eend $?
+}
