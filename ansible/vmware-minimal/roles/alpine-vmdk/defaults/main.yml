@@ -34,3 +34,7 @@ alpine_openrc_services:
 
 alpine_web_openrc_services:
   - { service: sshd, runlevel: default }
+
+# SELinux on lab bastions blocks writes without label=disable
+alpine_podman_run: "podman run --rm --user 0:0 --security-opt label=disable"
+alpine_podman_run_privileged: "podman run --rm --privileged --user 0:0 --security-opt label=disable"

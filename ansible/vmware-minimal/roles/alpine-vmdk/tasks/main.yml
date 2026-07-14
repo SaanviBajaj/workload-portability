@@ -81,7 +81,7 @@
     - name: Bootstrap Alpine base rootfs
       ansible.builtin.command:
         cmd: >-
-          podman run --rm
+          {{ alpine_podman_run }}
           -v {{ alpine_mnt }}:/mnt
           -v /etc/resolv.conf:/etc/resolv.conf:ro
           {{ alpine_image }}
@@ -94,7 +94,7 @@
     - name: Install Alpine packages into rootfs
       ansible.builtin.command:
         cmd: >-
-          podman run --rm
+          {{ alpine_podman_run }}
           -v {{ alpine_mnt }}:/mnt
           -v /etc/resolv.conf:/etc/resolv.conf:ro
           {{ alpine_image }}
@@ -139,7 +139,7 @@
     - name: Create demo SSH user in Alpine rootfs
       ansible.builtin.command:
         cmd: >-
-          podman run --rm -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
           chroot /mnt adduser -D -s /bin/ash {{ web_ssh_user }}
       when: alpine_role == 'web'
 
@@ -147,7 +147,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         echo '{{ web_ssh_user }}:{{ web_ssh_password }}' | \
-          podman run --rm -i -v {{ alpine_mnt }}:/mnt {{ alpine_image }} \
+          {{ alpine_podman_run }} -i -v {{ alpine_mnt }}:/mnt {{ alpine_image }} \
           chroot /mnt chpasswd
       args:
         executable: /bin/bash
@@ -157,7 +157,7 @@
     - name: Add demo user to wheel group
       ansible.builtin.command:
         cmd: >-
-          podman run --rm -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
           chroot /mnt addgroup {{ web_ssh_user }} wheel
       register: alpine_wheel_add
       failed_when: false
@@ -188,14 +188,14 @@
     - name: Enable OpenRC services in Alpine chroot
       ansible.builtin.command:
         cmd: >-
-          podman run --rm -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
           chroot /mnt rc-update add {{ item.service }} {{ item.runlevel }}
       loop: "{{ alpine_openrc_services + (alpine_web_openrc_services if alpine_role == 'web' else []) }}"
 
     - name: Generate Alpine initramfs
       ansible.builtin.command:
         cmd: >-
-          podman run --rm -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
           chroot /mnt mkinitfs -F
 
     - name: Trim Alpine apk cache
@@ -206,7 +206,7 @@
     - name: Install GRUB bootloader in Alpine chroot
       ansible.builtin.command:
         cmd: >-
-          podman run --rm --privileged
+          {{ alpine_podman_run_privileged }}
           -v {{ alpine_mnt }}:/mnt
           -v {{ alpine_loop }}:/dev/loopdisk
           {{ alpine_image }}
