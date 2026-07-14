@@ -11,7 +11,7 @@ alpine_raw: "{{ alpine_build_dir }}/disk.raw"
 alpine_vmdk: "{{ alpine_output_dir }}/disk.vmdk"
 
 alpine_common_packages:
-  - alpine-base-openrc
+  - openrc
   - alpine-conf
   - busybox-openrc
   - e2fsprogs
