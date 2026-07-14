@@ -23,7 +23,7 @@ datastore_base: "Workload-Portability"
 db01_vm_name: "todo-db"
 web01_vm_name: "todo-web"
 
-# Container images (pulled at first boot via Podman)
+# Container images — embedded in VMDK at build time (VM segment has no outbound internet)
 govc_image: "docker.io/vmware/govc:latest"
 todo_db_image: "quay.io/rh-ee-sbajaj/todo-db:latest"
 todo_web_image: "quay.io/rh-ee-sbajaj/todo-web:latest"
@@ -32,7 +32,7 @@ todo_web_image: "quay.io/rh-ee-sbajaj/todo-web:latest"
 alpine_version: "3.20"
 alpine_mirror: "https://dl-cdn.alpinelinux.org/alpine"
 alpine_image: "docker.io/library/alpine:{{ alpine_version }}"
-disk_mb: 700
+disk_mb: 1024
 
 # Podman image used for qemu-img when the bastion has no dnf repos
 qemu_img_image: "docker.io/library/alpine:3.20"

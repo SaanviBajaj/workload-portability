@@ -271,6 +271,33 @@
           chroot /mnt ssh-keygen -A
       when: alpine_role == 'web'
 
+    - name: Set container image to embed in Alpine VMDK
+      ansible.builtin.set_fact:
+        alpine_embed_image: "{{ todo_db_image if alpine_role == 'db' else todo_web_image }}"
+        alpine_embed_tar: "{{ 'todo-db' if alpine_role == 'db' else 'todo-web' }}.tar"
+
+    - name: Pull container image on bastion for VMDK embedding
+      ansible.builtin.command:
+        cmd: podman pull {{ alpine_embed_image }}
+      changed_when: true
+
+    - name: Save container image archive for VMDK embedding
+      ansible.builtin.command:
+        cmd: podman save -o {{ alpine_build_dir }}/{{ alpine_embed_tar }} {{ alpine_embed_image }}
+      changed_when: true
+
+    - name: Ensure embedded image directory exists in Alpine rootfs
+      ansible.builtin.file:
+        path: "{{ alpine_mnt }}/var/images"
+        state: directory
+        mode: "0755"
+
+    - name: Copy container image archive into Alpine rootfs
+      ansible.builtin.copy:
+        src: "{{ alpine_build_dir }}/{{ alpine_embed_tar }}"
+        dest: "{{ alpine_mnt }}/var/images/{{ alpine_embed_tar }}"
+        mode: "0644"
+
     - name: Enable OpenRC services in Alpine chroot
       ansible.builtin.command:
         cmd: >-
