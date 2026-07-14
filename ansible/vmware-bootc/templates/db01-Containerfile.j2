@@ -1,6 +1,9 @@
 # Use the official CentOS Stream 9 bootc base image
 FROM {{ centos_bootc_base }}
 
+# VMware Tools reports the guest IP to vCenter (required for govc vm.ip)
+RUN dnf install -y open-vm-tools && systemctl enable vmtoolsd
+
 # Ensure the systemd quadlet directory exists
 RUN mkdir -p /etc/containers/systemd/
 

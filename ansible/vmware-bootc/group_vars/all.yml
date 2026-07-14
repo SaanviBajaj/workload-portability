@@ -45,8 +45,10 @@ web_ssh_password: "demo"
 db_host: ""
 db_port: 5432
 
-# How long to wait for VMware Tools IP (govc -wait flag)
-vm_ip_wait: "5m"
+# Per-attempt wait passed to govc vm.ip -wait= (keep short; Ansible retries below)
+vm_ip_wait: "30s"
+vm_ip_retries: 30
+vm_ip_retry_delay: 10
 
 # Podman build/bootc-image-builder typically need root on the bastion
 podman_become: true

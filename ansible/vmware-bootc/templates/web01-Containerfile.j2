@@ -1,5 +1,8 @@
 FROM {{ centos_bootc_base }}
 
+# VMware Tools reports the guest IP to vCenter (required for govc vm.ip)
+RUN dnf install -y open-vm-tools && systemctl enable vmtoolsd
+
 # OS Hostname and SSH setup
 RUN echo "web01" > /etc/hostname
 RUN systemctl enable sshd

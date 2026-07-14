@@ -134,10 +134,11 @@
       ansible.builtin.command:
         cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ db01_vm_name }}"
       register: db01_ip_result
-      retries: 30
-      delay: 10
-      until: db01_ip_result.stdout | length > 0
+      retries: "{{ vm_ip_retries }}"
+      delay: "{{ vm_ip_retry_delay }}"
+      until: db01_ip_result.stdout | trim | length > 0
       changed_when: false
+      when: db_host | length == 0
       tags: [db01, web01, configure]
 
     - name: Set DB host from discovered DB01 IP
@@ -249,9 +250,9 @@
       ansible.builtin.command:
         cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ web01_vm_name }}"
       register: web01_ip_result
-      retries: 30
-      delay: 10
-      until: web01_ip_result.stdout | length > 0
+      retries: "{{ vm_ip_retries }}"
+      delay: "{{ vm_ip_retry_delay }}"
+      until: web01_ip_result.stdout | trim | length > 0
       changed_when: false
       tags: [web01, configure]
 
