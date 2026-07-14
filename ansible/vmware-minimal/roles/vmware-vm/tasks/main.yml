@@ -1,0 +1,69 @@
+---
+- name: Upload VMDK to datastore root
+  ansible.builtin.command:
+    cmd: >-
+      podman run --rm
+      --env-file {{ govc_env_path }}
+      -v {{ vm_build_dir }}/output:/output:z
+      {{ govc_image }}
+      /govc datastore.upload
+      /output/disk.vmdk
+      {{ vm_vmdk_upload }}
+
+- name: Ensure datastore subfolder exists
+  ansible.builtin.command:
+    cmd: "{{ govc_cmd }} datastore.mkdir {{ datastore_base }}/{{ vm_datastore_folder }}"
+  register: vm_datastore_mkdir
+  failed_when: >-
+    vm_datastore_mkdir.rc != 0 and
+    'already exists' not in (vm_datastore_mkdir.stderr | default('') | lower)
+  changed_when: vm_datastore_mkdir.rc == 0
+
+- name: Move VMDK into datastore subfolder (clears VMFS lock)
+  ansible.builtin.command:
+    cmd: "{{ govc_cmd }} datastore.mv {{ vm_vmdk_upload }} {{ vm_vmdk_final }}"
+
+- name: Check whether VM already exists in sandbox folder
+  ansible.builtin.command:
+    cmd: "{{ govc_cmd }} find {{ vm_folder }} -type m -name {{ vm_name }}"
+  register: vm_find
+  failed_when: false
+  changed_when: false
+
+- name: Set VM power-on flag for govc
+  ansible.builtin.set_fact:
+    vm_create_power_flag: "{{ '-on=true' if vm_power_on | bool else '' }}"
+
+- name: Create and power on VM
+  ansible.builtin.command:
+    cmd: >-
+      {{ govc_cmd }} vm.create
+      -c {{ vm_cpus }}
+      -m {{ vm_memory_mb }}
+      -net "{{ vm_network }}"
+      -folder "{{ vm_folder }}"
+      -disk "{{ vm_vmdk_final }}"
+      -disk.controller {{ vm_disk_controller }}
+      -firmware {{ vm_firmware }}
+      -g {{ vm_guest_id }}
+      {{ vm_create_power_flag }}
+      {{ vm_name }}
+  when: vm_find.stdout | trim | length == 0
+
+- name: Wait for VM IP address
+  ansible.builtin.command:
+    cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ vm_name }}"
+  register: vmware_vm_ip
+  retries: "{{ vm_ip_retries }}"
+  delay: "{{ vm_ip_retry_delay }}"
+  until: vmware_vm_ip.stdout | trim | length > 0
+  changed_when: false
+  when: vm_wait_for_ip | bool
+
+- name: Publish discovered VM IP as fact
+  ansible.builtin.set_fact:
+    "{{ vm_ip_fact_name }}": "{{ vmware_vm_ip.stdout | trim }}"
+  when:
+    - vm_wait_for_ip | bool
+    - vm_ip_fact_name | length > 0
+    - vmware_vm_ip.stdout | trim | length > 0

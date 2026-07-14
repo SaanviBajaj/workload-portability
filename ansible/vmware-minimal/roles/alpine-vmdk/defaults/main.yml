@@ -1,0 +1,36 @@
+---
+# db or web — set by the playbook
+alpine_role: db
+alpine_build_dir: "{{ work_base }}/alpine-build"
+alpine_hostname: alpine-vm
+
+alpine_image: "docker.io/library/alpine:{{ alpine_version }}"
+alpine_output_dir: "{{ alpine_build_dir }}/output"
+alpine_mnt: "{{ alpine_build_dir }}/mnt"
+alpine_raw: "{{ alpine_build_dir }}/disk.raw"
+alpine_vmdk: "{{ alpine_output_dir }}/disk.vmdk"
+
+alpine_common_packages:
+  - alpine-base-openrc
+  - alpine-conf
+  - busybox-openrc
+  - e2fsprogs
+  - grub-bios
+  - linux-virt
+  - podman
+  - open-vm-tools
+
+alpine_web_packages:
+  - openssh
+  - openssh-server-sftp-server
+  - shadow
+  - sudo
+
+alpine_openrc_services:
+  - { service: hostname, runlevel: boot }
+  - { service: networking, runlevel: boot }
+  - { service: local, runlevel: default }
+  - { service: vmtoolsd, runlevel: default }
+
+alpine_web_openrc_services:
+  - { service: sshd, runlevel: default }

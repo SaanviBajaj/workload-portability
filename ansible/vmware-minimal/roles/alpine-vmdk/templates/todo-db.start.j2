@@ -1,0 +1,5 @@
+#!/bin/sh
+podman pull {{ todo_db_image }} || true
+podman run -d --replace --name todo-db \
+  -p 5432:5432 \
+  {{ todo_db_image }}

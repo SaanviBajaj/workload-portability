@@ -1,0 +1,66 @@
+---
+# VMware vCenter / govc settings
+# Copy credentials.env.example to credentials.env and override sandbox-specific values.
+govc_url: "https://vcsnsx-vc.infra.demo.redhat.com"
+govc_username: "sandbox-XXXXX@demo"
+govc_password: "YourPasswordHere"
+govc_insecure: true
+govc_datastore: "workload_share_XXXXX"
+
+# VMware VM placement
+vm_network: "segment-sandbox-XXXXX"
+vm_folder: "/SDDC-Datacenter/vm/Workloads/sandbox-XXXXX"
+vm_guest_id: "other3xLinux64Guest"
+vm_firmware: "bios"
+vm_cpus: 2
+vm_memory_mb: 4096
+vm_disk_controller: "scsi"
+
+# Datastore paths for VMDK upload (relative to datastore root)
+datastore_base: "Workload-Portability"
+
+# VM names
+db01_vm_name: "todo-db"
+web01_vm_name: "todo-web"
+
+# Container images (pulled at first boot via Podman)
+govc_image: "docker.io/vmware/govc:latest"
+todo_db_image: "quay.io/rh-ee-sbajaj/todo-db:latest"
+todo_web_image: "quay.io/rh-ee-sbajaj/todo-web:latest"
+
+# Alpine rootfs build
+alpine_version: "3.20"
+alpine_mirror: "https://dl-cdn.alpinelinux.org/alpine"
+alpine_image: "docker.io/library/alpine:{{ alpine_version }}"
+disk_mb: 700
+
+# Build directories on the bastion (use sudo so artifacts land in /root/minimal-build)
+work_base: "{{ ansible_env.HOME }}/minimal-build"
+govc_env_path: "{{ work_base }}/govc.env"
+db01_build_dir: "{{ work_base }}/todo-db"
+web01_build_dir: "{{ work_base }}/todo-web"
+
+# Web VM login (created in Alpine rootfs for SSH troubleshooting)
+web_ssh_user: "demo"
+web_ssh_password: "demo"
+
+# Override after DB VM is deployed; leave empty to auto-detect via govc
+db_host: ""
+db_port: 5432
+
+# Per-attempt wait passed to govc vm.ip -wait= (keep short; Ansible retries below)
+vm_ip_wait: "30s"
+vm_ip_retries: 30
+vm_ip_retry_delay: 10
+
+# Bastion firewalld — forward public HTTP to todo-web
+bastion_firewall_forward_port: 80
+todo_web_service_port: 80
+
+# Cleanup playbook toggles (cleanup-minimal-vms.yml)
+cleanup_vms: true
+cleanup_datastore_vmdks: true
+cleanup_datastore_folder: true
+cleanup_bastion_firewall: true
+cleanup_local_build: true
+cleanup_remove_masquerade: false

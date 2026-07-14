@@ -1,0 +1,237 @@
+---
+- name: Require DB host when building todo-web image
+  ansible.builtin.fail:
+    msg: "db_host must be set when alpine_role is web"
+  when:
+    - alpine_role == 'web'
+    - db_host | length == 0
+
+- name: Build Alpine package list for image role
+  ansible.builtin.set_fact:
+    alpine_install_packages: >-
+      {{ alpine_common_packages +
+         (alpine_web_packages if alpine_role == 'web' else []) }}
+
+- name: Build Alpine VMDK image
+  block:
+    - name: Ensure Alpine build directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ alpine_build_dir }}"
+        - "{{ alpine_output_dir }}"
+        - "{{ alpine_mnt }}"
+
+    - name: Remove previous Alpine disk artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ alpine_raw }}"
+        - "{{ alpine_vmdk }}"
+
+    - name: Create raw disk image
+      ansible.builtin.command:
+        cmd: qemu-img create -f raw {{ alpine_raw }} {{ disk_mb }}M
+
+    - name: Partition raw disk with MBR layout
+      ansible.builtin.shell: |
+        set -o pipefail
+        printf 'label: dos\n,,L\n' | sfdisk -f {{ alpine_raw }}
+      args:
+        executable: /bin/bash
+
+    - name: Attach loop device to raw disk
+      ansible.builtin.command:
+        cmd: losetup -Pf --show {{ alpine_raw }}
+      register: alpine_loop_setup
+      changed_when: true
+
+    - name: Record loop device paths
+      ansible.builtin.set_fact:
+        alpine_loop: "{{ alpine_loop_setup.stdout | trim }}"
+        alpine_loop_part: "{{ alpine_loop_setup.stdout | trim }}p1"
+
+    - name: Format Alpine root partition
+      ansible.builtin.command:
+        cmd: mkfs.ext4 -F -L alpine-root {{ alpine_loop_part }}
+
+    - name: Mount Alpine root partition
+      ansible.builtin.mount:
+        path: "{{ alpine_mnt }}"
+        src: "{{ alpine_loop_part }}"
+        fstype: ext4
+        state: mounted
+
+    - name: Bootstrap Alpine base rootfs
+      ansible.builtin.command:
+        cmd: >-
+          podman run --rm
+          -v {{ alpine_mnt }}:/mnt
+          -v /etc/resolv.conf:/etc/resolv.conf:ro
+          {{ alpine_image }}
+          sh -ec
+          "apk add --root /mnt --initdb --arch x86_64
+          -X {{ alpine_mirror }}/v{{ alpine_version }}/main
+          -X {{ alpine_mirror }}/v{{ alpine_version }}/community
+          alpine-base"
+
+    - name: Install Alpine packages into rootfs
+      ansible.builtin.command:
+        cmd: >-
+          podman run --rm
+          -v {{ alpine_mnt }}:/mnt
+          -v /etc/resolv.conf:/etc/resolv.conf:ro
+          {{ alpine_image }}
+          sh -ec
+          "apk add --root /mnt --arch x86_64
+          -X {{ alpine_mirror }}/v{{ alpine_version }}/main
+          -X {{ alpine_mirror }}/v{{ alpine_version }}/community
+          {{ alpine_install_packages | join(' ') }}"
+
+    - name: Set Alpine hostname
+      ansible.builtin.copy:
+        content: "{{ alpine_hostname }}\n"
+        dest: "{{ alpine_mnt }}/etc/hostname"
+        mode: "0644"
+
+    - name: Deploy Alpine network configuration
+      ansible.builtin.template:
+        src: network-interfaces.j2
+        dest: "{{ alpine_mnt }}/etc/network/interfaces"
+        mode: "0644"
+
+    - name: Ensure Alpine local.d directory exists
+      ansible.builtin.file:
+        path: "{{ alpine_mnt }}/etc/local.d"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy todo-db OpenRC startup script
+      ansible.builtin.template:
+        src: todo-db.start.j2
+        dest: "{{ alpine_mnt }}/etc/local.d/todo-db.start"
+        mode: "0755"
+      when: alpine_role == 'db'
+
+    - name: Deploy todo-web OpenRC startup script
+      ansible.builtin.template:
+        src: todo-web.start.j2
+        dest: "{{ alpine_mnt }}/etc/local.d/todo-web.start"
+        mode: "0755"
+      when: alpine_role == 'web'
+
+    - name: Create demo SSH user in Alpine rootfs
+      ansible.builtin.command:
+        cmd: >-
+          podman run --rm -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          chroot /mnt adduser -D -s /bin/ash {{ web_ssh_user }}
+      when: alpine_role == 'web'
+
+    - name: Set demo SSH user password
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '{{ web_ssh_user }}:{{ web_ssh_password }}' | \
+          podman run --rm -i -v {{ alpine_mnt }}:/mnt {{ alpine_image }} \
+          chroot /mnt chpasswd
+      args:
+        executable: /bin/bash
+      when: alpine_role == 'web'
+      no_log: true
+
+    - name: Add demo user to wheel group
+      ansible.builtin.command:
+        cmd: >-
+          podman run --rm -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          chroot /mnt addgroup {{ web_ssh_user }} wheel
+      register: alpine_wheel_add
+      failed_when: false
+      changed_when: alpine_wheel_add.rc == 0
+      when: alpine_role == 'web'
+
+    - name: Allow passwordless sudo for wheel group
+      ansible.builtin.lineinfile:
+        path: "{{ alpine_mnt }}/etc/sudoers"
+        line: "%wheel ALL=(ALL) NOPASSWD: ALL"
+        create: false
+      when: alpine_role == 'web'
+
+    - name: Ensure sshd config drop-in directory exists
+      ansible.builtin.file:
+        path: "{{ alpine_mnt }}/etc/ssh/sshd_config.d"
+        state: directory
+        mode: "0755"
+      when: alpine_role == 'web'
+
+    - name: Enable SSH password authentication for demo user
+      ansible.builtin.template:
+        src: sshd-demo.conf.j2
+        dest: "{{ alpine_mnt }}/etc/ssh/sshd_config.d/99-demo.conf"
+        mode: "0644"
+      when: alpine_role == 'web'
+
+    - name: Enable OpenRC services in Alpine chroot
+      ansible.builtin.command:
+        cmd: >-
+          podman run --rm -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          chroot /mnt rc-update add {{ item.service }} {{ item.runlevel }}
+      loop: "{{ alpine_openrc_services + (alpine_web_openrc_services if alpine_role == 'web' else []) }}"
+
+    - name: Generate Alpine initramfs
+      ansible.builtin.command:
+        cmd: >-
+          podman run --rm -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          chroot /mnt mkinitfs -F
+
+    - name: Trim Alpine apk cache
+      ansible.builtin.file:
+        path: "{{ alpine_mnt }}/var/cache/apk"
+        state: absent
+
+    - name: Install GRUB bootloader in Alpine chroot
+      ansible.builtin.command:
+        cmd: >-
+          podman run --rm --privileged
+          -v {{ alpine_mnt }}:/mnt
+          -v {{ alpine_loop }}:/dev/loopdisk
+          {{ alpine_image }}
+          sh -ec
+          "chroot /mnt grub-install --target=i386-pc --boot-directory=/boot
+          --modules='part_msdos ext2 ext4' /dev/loopdisk &&
+          chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg"
+
+    - name: Sync disk before unmount
+      ansible.builtin.command:
+        cmd: sync
+
+    - name: Convert raw disk to streamOptimized VMDK
+      ansible.builtin.command:
+        cmd: >-
+          qemu-img convert -f raw -O vmdk
+          -o subformat=streamOptimized
+          {{ alpine_raw }} {{ alpine_vmdk }}
+
+    - name: Show Alpine VMDK size
+      ansible.builtin.command:
+        cmd: du -h {{ alpine_vmdk }}
+      register: alpine_vmdk_size
+      changed_when: false
+
+    - name: Report Alpine VMDK build result
+      ansible.builtin.debug:
+        msg: "Built {{ alpine_vmdk }} ({{ alpine_vmdk_size.stdout | trim }})"
+
+  always:
+    - name: Unmount Alpine root partition
+      ansible.builtin.mount:
+        path: "{{ alpine_mnt }}"
+        state: unmounted
+      failed_when: false
+
+    - name: Detach loop device from raw disk
+      ansible.builtin.command:
+        cmd: losetup -d {{ alpine_loop }}
+      when: alpine_loop is defined
+      failed_when: false
