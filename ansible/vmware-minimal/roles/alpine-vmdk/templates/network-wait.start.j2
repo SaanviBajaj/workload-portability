@@ -1,0 +1,11 @@
+#!/bin/sh
+# VMware NIC may appear a few seconds after boot; wait then configure networking.
+i=0
+while [ "$i" -lt 30 ]; do
+  if ip link show eth0 >/dev/null 2>&1; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+rc-service networking restart

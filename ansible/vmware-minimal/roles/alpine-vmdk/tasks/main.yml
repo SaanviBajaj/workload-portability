@@ -158,6 +158,12 @@
         dest: "{{ alpine_mnt }}/etc/local.d/00-vmtools.start"
         mode: "0755"
 
+    - name: Deploy network wait helper for VMware NIC
+      ansible.builtin.template:
+        src: network-wait.start.j2
+        dest: "{{ alpine_mnt }}/etc/local.d/01-network-wait.start"
+        mode: "0755"
+
     - name: Create demo SSH user in Alpine rootfs
       ansible.builtin.command:
         cmd: >-
