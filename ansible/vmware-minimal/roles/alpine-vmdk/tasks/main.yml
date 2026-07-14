@@ -216,17 +216,37 @@
         path: "{{ alpine_mnt }}/var/cache/apk"
         state: absent
 
+    - name: Ensure chroot mount points exist in Alpine rootfs
+      ansible.builtin.file:
+        path: "{{ alpine_mnt }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - dev
+        - proc
+        - sys
+
+    - name: Bind mount dev into Alpine chroot
+      ansible.builtin.command:
+        cmd: mount --bind /dev {{ alpine_mnt }}/dev
+
+    - name: Bind mount proc into Alpine chroot
+      ansible.builtin.command:
+        cmd: mount --bind /proc {{ alpine_mnt }}/proc
+
+    - name: Bind mount sys into Alpine chroot
+      ansible.builtin.command:
+        cmd: mount --bind /sys {{ alpine_mnt }}/sys
+
     - name: Install GRUB bootloader in Alpine chroot
       ansible.builtin.command:
         cmd: >-
-          {{ alpine_podman_run_privileged }}
-          -v {{ alpine_mnt }}:/mnt
-          -v {{ alpine_loop }}:/dev/loopdisk
-          {{ alpine_image }}
-          sh -ec
-          "chroot /mnt grub-install --target=i386-pc --boot-directory=/boot
-          --modules='part_msdos ext2 ext4' /dev/loopdisk &&
-          chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg"
+          chroot {{ alpine_mnt }} grub-install --target=i386-pc --boot-directory=/boot
+          --modules='part_msdos ext2 ext4' {{ alpine_loop }}
+
+    - name: Generate GRUB configuration in Alpine chroot
+      ansible.builtin.command:
+        cmd: chroot {{ alpine_mnt }} grub-mkconfig -o /boot/grub/grub.cfg
 
     - name: Sync disk before unmount
       ansible.builtin.command:
@@ -250,6 +270,15 @@
         msg: "Built {{ alpine_vmdk }} ({{ alpine_vmdk_size.stdout | trim }})"
 
   always:
+    - name: Unmount Alpine chroot bind mounts
+      ansible.builtin.command:
+        cmd: umount {{ alpine_mnt }}/{{ item }}
+      loop:
+        - sys
+        - proc
+        - dev
+      failed_when: false
+
     - name: Unmount Alpine root partition
       ansible.builtin.command:
         cmd: umount {{ alpine_mnt }}
