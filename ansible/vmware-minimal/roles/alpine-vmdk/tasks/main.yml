@@ -275,16 +275,48 @@
       ansible.builtin.set_fact:
         alpine_embed_image: "{{ todo_db_image if alpine_role == 'db' else todo_web_image }}"
         alpine_embed_tar: "{{ 'todo-db' if alpine_role == 'db' else 'todo-web' }}.tar"
+        alpine_embed_tar_path: "{{ todo_db_image_tar if alpine_role == 'db' else todo_web_image_tar }}"
 
     - name: Pull container image on bastion for VMDK embedding
       ansible.builtin.command:
         cmd: podman pull {{ alpine_embed_image }}
-      changed_when: true
+      register: alpine_embed_pull
+      failed_when: false
+      changed_when: alpine_embed_pull.rc == 0
 
-    - name: Save container image archive for VMDK embedding
+    - name: Save pulled container image archive for VMDK embedding
       ansible.builtin.command:
         cmd: podman save -o {{ alpine_build_dir }}/{{ alpine_embed_tar }} {{ alpine_embed_image }}
+      when: alpine_embed_pull.rc == 0
       changed_when: true
+
+    - name: Check for offline container image archive on bastion
+      ansible.builtin.stat:
+        path: "{{ alpine_embed_tar_path }}"
+      register: alpine_offline_tar
+      when: alpine_embed_pull.rc != 0
+
+    - name: Stage offline container image archive for VMDK embedding
+      ansible.builtin.copy:
+        src: "{{ alpine_embed_tar_path }}"
+        dest: "{{ alpine_build_dir }}/{{ alpine_embed_tar }}"
+        remote_src: true
+        mode: "0644"
+      when:
+        - alpine_embed_pull.rc != 0
+        - alpine_offline_tar.stat.exists
+
+    - name: Fail when container image is unavailable for embedding
+      ansible.builtin.fail:
+        msg: >-
+          Could not pull {{ alpine_embed_image }} (quay.io often denies pulls in lab environments).
+          On a machine that can reach quay.io, run:
+            podman pull {{ alpine_embed_image }}
+            podman save -o {{ alpine_embed_tar }} {{ alpine_embed_image }}
+          Copy {{ alpine_embed_tar }} to the bastion at {{ alpine_embed_tar_path }}, then re-run the playbook.
+      when:
+        - alpine_embed_pull.rc != 0
+        - not (alpine_offline_tar.stat.exists | default(false))
 
     - name: Ensure embedded image directory exists in Alpine rootfs
       ansible.builtin.file:

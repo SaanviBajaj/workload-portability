@@ -23,10 +23,14 @@ datastore_base: "Workload-Portability"
 db01_vm_name: "todo-db"
 web01_vm_name: "todo-web"
 
-# Container images — embedded in VMDK at build time (VM segment has no outbound internet)
+# Container images — embedded in VMDK at build time (VMs cannot pull from quay.io at boot)
 govc_image: "docker.io/vmware/govc:latest"
 todo_db_image: "quay.io/rh-ee-sbajaj/todo-db:latest"
 todo_web_image: "quay.io/rh-ee-sbajaj/todo-web:latest"
+
+# Offline image tars on bastion when quay.io denies pulls during build
+todo_db_image_tar: "{{ work_base }}/todo-db.tar"
+todo_web_image_tar: "{{ work_base }}/todo-web.tar"
 
 # Alpine rootfs build
 alpine_version: "3.20"
