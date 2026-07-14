@@ -93,6 +93,14 @@
           {{ db01_vmdk_upload }}
       tags: [db01]
 
+    - name: Ensure DB01 datastore subfolder exists
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} datastore.mkdir {{ datastore_base }}/db01"
+      register: db01_mkdir
+      failed_when: db01_mkdir.rc != 0 and 'already exists' not in (db01_mkdir.stderr | default('') | lower)
+      changed_when: db01_mkdir.rc == 0
+      tags: [db01]
+
     - name: Move DB01 VMDK into db01 folder (clears VMFS lock)
       ansible.builtin.command:
         cmd: "{{ govc_cmd }} datastore.mv {{ db01_vmdk_upload }} {{ db01_vmdk_final }}"
@@ -198,6 +206,14 @@
           /govc datastore.upload
           /output/vmdk/disk.vmdk
           {{ web01_vmdk_upload }}
+      tags: [web01]
+
+    - name: Ensure WEB01 datastore subfolder exists
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} datastore.mkdir {{ datastore_base }}/web01"
+      register: web01_mkdir
+      failed_when: web01_mkdir.rc != 0 and 'already exists' not in (web01_mkdir.stderr | default('') | lower)
+      changed_when: web01_mkdir.rc == 0
       tags: [web01]
 
     - name: Move WEB01 VMDK into web01 folder (clears VMFS lock)
