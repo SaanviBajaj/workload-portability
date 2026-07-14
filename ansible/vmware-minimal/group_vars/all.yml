@@ -47,14 +47,21 @@ web01_build_dir: "{{ work_base }}/todo-web"
 web_ssh_user: "demo"
 web_ssh_password: "demo"
 
-# Override after DB VM is deployed; leave empty to auto-detect via govc
+# Override after DB VM is deployed; leave empty to auto-detect via VMware Tools
 db_host: ""
 db_port: 5432
+
+# Optional static IPs — use when govc vm.ip cannot see VMware Tools yet
+db01_static_ip: ""
+web01_static_ip: ""
+alpine_static_netmask: "255.255.255.0"
+alpine_static_gateway: ""
 
 # Per-attempt wait passed to govc vm.ip -wait= (keep short; Ansible retries below)
 vm_ip_wait: "30s"
 vm_ip_retries: 30
 vm_ip_retry_delay: 10
+vm_first_boot_pause: 90
 
 # Bastion firewalld — forward public HTTP to todo-web
 bastion_firewall_forward_port: 80

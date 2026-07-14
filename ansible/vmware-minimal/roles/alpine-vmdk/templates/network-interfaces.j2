@@ -2,4 +2,13 @@ auto lo
 iface lo inet loopback
 
 auto eth0
+{% if alpine_static_ip | length > 0 %}
+iface eth0 inet static
+  address {{ alpine_static_ip }}
+  netmask {{ alpine_static_netmask }}
+{% if alpine_static_gateway | length > 0 %}
+  gateway {{ alpine_static_gateway }}
+{% endif %}
+{% else %}
 iface eth0 inet dhcp
+{% endif %}

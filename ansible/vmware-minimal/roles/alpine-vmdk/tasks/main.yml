@@ -146,6 +146,12 @@
         mode: "0755"
       when: alpine_role == 'web'
 
+    - name: Deploy VMware Tools startup helper
+      ansible.builtin.template:
+        src: vmtools.start.j2
+        dest: "{{ alpine_mnt }}/etc/local.d/vmtools.start"
+        mode: "0755"
+
     - name: Create demo SSH user in Alpine rootfs
       ansible.builtin.command:
         cmd: >-
@@ -207,7 +213,7 @@
         set -o pipefail
         KERNEL_VER="$(ls {{ alpine_mnt }}/lib/modules | head -1)"
         {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }} \
-          chroot /mnt mkinitfs "${KERNEL_VER}"
+          chroot /mnt mkinitfs -F "base ext4 ext2 scsi sd_mod virtio" "${KERNEL_VER}"
       args:
         executable: /bin/bash
 

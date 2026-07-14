@@ -14,6 +14,7 @@ alpine_common_packages:
   - openrc
   - alpine-conf
   - busybox-openrc
+  - ifupdown-ng
   - e2fsprogs
   - grub-bios
   - linux-virt
@@ -21,6 +22,10 @@ alpine_common_packages:
   - open-vm-tools
   - open-vm-tools-openrc
   - open-vm-tools-guestinfo
+
+alpine_static_ip: ""
+alpine_static_netmask: "255.255.255.0"
+alpine_static_gateway: ""
 
 alpine_web_packages:
   - openssh

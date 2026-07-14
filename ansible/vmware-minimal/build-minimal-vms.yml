@@ -44,7 +44,16 @@
         alpine_role: db
         alpine_build_dir: "{{ db01_build_dir }}"
         alpine_hostname: "{{ db01_vm_name }}"
+        alpine_static_ip: "{{ db01_static_ip }}"
       tags: [db01]
+
+    - name: Set DB host from configured static IP
+      ansible.builtin.set_fact:
+        db_host: "{{ db01_static_ip }}"
+      when:
+        - db_host | length == 0
+        - db01_static_ip | length > 0
+      tags: [db01, web01]
 
     - name: Deploy todo-db VM to VMware
       ansible.builtin.include_role:
@@ -54,7 +63,8 @@
         vm_build_dir: "{{ db01_build_dir }}"
         vm_datastore_folder: todo-db
         vm_vmdk_filename: todo-db-disk1.vmdk
-        vm_wait_for_ip: "{{ db_host | length == 0 }}"
+        vm_wait_for_ip: "{{ db_host | length == 0 and db01_static_ip | length == 0 }}"
+        vm_static_ip: "{{ db01_static_ip }}"
         vm_ip_fact_name: todo_db_ip
       tags: [db01]
 
@@ -77,6 +87,7 @@
         alpine_role: web
         alpine_build_dir: "{{ web01_build_dir }}"
         alpine_hostname: "{{ web01_vm_name }}"
+        alpine_static_ip: "{{ web01_static_ip }}"
       tags: [web01]
 
     - name: Deploy todo-web VM to VMware
@@ -87,7 +98,8 @@
         vm_build_dir: "{{ web01_build_dir }}"
         vm_datastore_folder: todo-web
         vm_vmdk_filename: todo-web-disk1.vmdk
-        vm_wait_for_ip: true
+        vm_wait_for_ip: "{{ web01_static_ip | length == 0 }}"
+        vm_static_ip: "{{ web01_static_ip }}"
         vm_ip_fact_name: todo_web_ip
       tags: [web01, bastion-firewall]
 

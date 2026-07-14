@@ -467,18 +467,33 @@ sudo podman run --rm docker.io/library/alpine:3.20 \
 
 If that fails, the bastion cannot reach the internet to pull container images.
 
-### Playbook hangs waiting for VM IP
+### Playbook hangs waiting for VM IP / VMware Tools not installed
 
-The playbook waits for VMware Tools to report an IP. If a VM booted but has no IP:
+`govc vm.ip` only works when **open-vm-tools** is running inside the guest and reporting to vSphere. vSphere may show "VMware Tools: Not installed" until the VM boots and `open-vm-tools` starts.
 
-1. Check the VM console in vSphere — is Alpine booting? Any errors?
+The image **does** include `open-vm-tools` + `open-vm-tools-guestinfo`. First boot can take 1–2 minutes before the IP appears.
+
+1. Check the VM console in vSphere — did Alpine boot? Any kernel/initramfs errors?
 2. Wait longer:
 
 ```bash
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env -e vm_ip_wait=10m
+sudo ansible-playbook build-minimal-vms.yml -e @credentials.env -e vm_first_boot_pause=180
 ```
 
-3. Or set the IP manually in `credentials.env`:
+3. **Recommended workaround — static IPs** in `credentials.env` (bypasses VMware Tools IP discovery):
+
+```yaml
+db01_static_ip: "192.168.108.50"
+web01_static_ip: "192.168.108.51"
+```
+
+Pick free IPs on your sandbox segment, then re-run:
+
+```bash
+sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
+```
+
+4. Or set only the DB IP if todo-db already has one:
 
 ```yaml
 db_host: "192.168.x.x"
