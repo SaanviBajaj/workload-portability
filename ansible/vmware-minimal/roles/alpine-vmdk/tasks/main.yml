@@ -12,6 +12,12 @@
       {{ alpine_common_packages +
          (alpine_web_packages if alpine_role == 'web' else []) }}
 
+- name: Ensure Alpine build directory exists for wrapper script
+  ansible.builtin.file:
+    path: "{{ alpine_build_dir }}"
+    state: directory
+    mode: "0755"
+
 - name: Deploy qemu-img wrapper script
   ansible.builtin.template:
     src: qemu-img-wrapper.j2
