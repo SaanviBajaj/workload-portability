@@ -9,7 +9,9 @@ This playbook builds and deploys two **small** VMs for the todo app demo:
 
 **Run everything on your bastion VM** — the Linux VM in your demo environment that can talk to VMware.
 
-This is the **minimal** track. It makes **much smaller disk images** than the bootc track (~700 MB vs ~1.7 GB per VM).
+This is the **minimal** track. It makes **smaller disk images** than the bootc track (~1 GB vs ~1.7 GB per VM).
+
+**Important:** Container images are **embedded in the VMDK at build time** on the bastion. The VMs do **not** pull from quay.io at boot (quay.io often denies pulls in lab environments).
 
 **Need to copy these files onto the bastion first?** → See [Getting files onto the bastion](#step-1--get-the-files-onto-the-bastion) below (or use the same copy methods as [../vmware-bootc/README-BASTION.md](../vmware-bootc/README-BASTION.md) — just use the `vmware-minimal` folder instead of `vmware-bootc`).
 
@@ -31,7 +33,7 @@ Normally you'd install an OS, install Docker/Podman, configure networking, uploa
 | | Bootc track (`vmware-bootc`) | **Minimal track (this guide)** |
 |---|------------------------------|--------------------------------|
 | OS inside the VM | Full CentOS Stream 9 bootc image | Tiny Alpine Linux |
-| Disk size | ~1.7 GB per VM | **~500–800 MB per VM** (under 1 GB) |
+| Disk size | ~1.7 GB per VM | **~1 GB per VM** (embedded container images) |
 | Good when | You want a "real" RHEL-like VM | You want small disks for demos/migration |
 
 Both tracks create the **same VM names** (`todo-db`, `todo-web`). **Do not run both at the same time** — pick one track.
@@ -95,26 +97,29 @@ Each VM boots from a **VMDK file** — think of it as a virtual hard drive you u
 
 | VM | Build output on bastion | Size (approx.) |
 |----|-------------------------|----------------|
-| `todo-db` | `todo-db/output/disk.vmdk` | **~500–800 MB** |
-| `todo-web` | `todo-web/output/disk.vmdk` | **~500–800 MB** |
+| `todo-db` | `todo-db/output/disk.vmdk` | **~800 MB–1 GB** |
+| `todo-web` | `todo-web/output/disk.vmdk` | **~800 MB–1 GB** |
 
 The playbook builds these on the bastion using:
 
 - **Alpine Linux** — a very small Linux distro (not a full CentOS install)
 - **Podman** — runs the actual todo app containers inside the VM
+- **Embedded container images** — `todo-db` / `todo-web` images are saved into the disk at build time
 - **qemu-img** — creates and converts the virtual disk
 
 ### What's inside each VM?
 
 **todo-db VM:**
 - Tiny Alpine Linux (just enough to boot and run Podman)
-- On startup, automatically runs the `todo-db` container (PostgreSQL on port 5432)
-- No SSH login (you manage it through VMware/vCenter)
+- On startup, loads the embedded `todo-db` image from `/var/images/todo-db.tar` and runs PostgreSQL on port **5432**
+- Uses **host networking** (`--network host`) — no bridge/port-map setup needed
+- No SSH login — use the **vSphere web console** for troubleshooting
 
 **todo-web VM:**
 - Tiny Alpine Linux + SSH (user `demo` / password `demo`)
-- On startup, automatically runs the `todo-web` container (web app on port 80)
-- Knows where the database is (`DB_HOST` is baked into the image at build time)
+- On startup, loads the embedded `todo-web` image from `/var/images/todo-web.tar`
+- Runs the web app on port **8080** with **host networking**, and redirects incoming port **80 → 8080** via iptables
+- `DB_HOST` is **baked into the disk at build time** — the playbook discovers todo-db's IP before building the web image
 
 ### VM sizing (defaults)
 
@@ -176,6 +181,13 @@ ls build-minimal-vms.yml credentials.env.example README.md
 
 More copy options (rsync, tar, etc.) → [../vmware-bootc/README-BASTION.md](../vmware-bootc/README-BASTION.md) — same steps, swap `vmware-bootc` → `vmware-minimal`.
 
+### Boot order (what happens inside each VM)
+
+1. OpenRC mounts the root filesystem **read-write** and loads VMware NIC drivers (`e1000` / `vmxnet3`)
+2. `local` service runs `00-network-wait` — waits for `eth0`, starts DHCP, fixes DNS
+3. `todo-db` or `todo-web` service starts — loads embedded image, runs Podman container
+4. On **todo-web only**: iptables redirects port 80 → 8080
+
 ---
 
 ## Step 2 — Create your credentials file
@@ -228,6 +240,21 @@ These are the names you'll see in vSphere and use in the browser URL.
 
 > **Important:** `credentials.env` contains your real password. **Never commit it to git.**
 
+### Offline container images (when quay.io denies pulls)
+
+The playbook tries to `podman pull` on the **bastion** during build. If quay.io blocks pulls (a known lab issue), save the images elsewhere and copy them to the bastion first:
+
+```bash
+# On a machine that CAN pull from quay.io:
+podman pull quay.io/rh-ee-sbajaj/todo-db:latest
+podman pull quay.io/rh-ee-sbajaj/todo-web:latest
+podman save -o todo-db.tar quay.io/rh-ee-sbajaj/todo-db:latest
+podman save -o todo-web.tar quay.io/rh-ee-sbajaj/todo-web:latest
+scp todo-db.tar todo-web.tar lab-user@bastion:~/minimal-build/
+```
+
+The playbook looks for these at `/root/minimal-build/todo-db.tar` and `todo-web.tar` when pulls fail.
+
 ---
 
 ## Step 3 — Run the playbook
@@ -235,22 +262,24 @@ These are the names you'll see in vSphere and use in the browser URL.
 Use `sudo` — the playbook needs root to mount disks, build images, and write to `/root/minimal-build/`:
 
 ```bash
+git pull   # always pull latest fixes before building
+sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env   # optional: clean slate
 sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
 ```
 
-### What happens (expect 10–20+ minutes)
+### What happens (expect 15–30+ minutes)
 
 Here's the order, in plain English:
 
 1. **Installs build tools** on the bastion (if missing)
-2. **Builds todo-db disk** — creates a 700 MB Alpine image with the database container baked in
+2. **Builds todo-db disk** — Alpine rootfs + embedded `todo-db` container image
 3. **Uploads todo-db disk** to VMware datastore
 4. **Creates todo-db VM** in your sandbox folder and powers it on
-5. **Waits for todo-db IP** — VMware Tools reports the VM's private IP (e.g. `192.168.x.x`)
-6. **Builds todo-web disk** — same Alpine process, but includes the database IP so the web app knows where to connect
+5. **Waits for todo-db IP** via VMware Tools (pauses ~2 minutes on first boot)
+6. **Builds todo-web disk** — Alpine rootfs + embedded `todo-web` image with `DB_HOST` set to the IP from step 5
 7. **Uploads todo-web disk** and **creates todo-web VM**
 8. **Waits for todo-web IP**
-9. **Configures bastion firewall** — forwards port 80 on the bastion → todo-web port 80 (so your laptop can open the app)
+9. **Configures bastion firewall** — forwards port 80 on the bastion → todo-web port 80
 
 You'll see lots of Ansible output scroll by. That's normal. Wait until it says `PLAY RECAP` with no failed tasks.
 
@@ -293,11 +322,22 @@ You should get private IPs like `192.168.x.x`. Write down the **todo-web** IP.
 ### C) Test the web app from the bastion (internal test)
 
 ```bash
-curl http://$(sudo podman run --rm --env-file /root/minimal-build/govc.env \
+WEB_IP=$(sudo podman run --rm --env-file /root/minimal-build/govc.env \
   docker.io/vmware/govc:latest /govc vm.ip todo-web)
+
+curl -I http://$WEB_IP
 ```
 
-You should see HTML containing "Todo" or similar — not an error page.
+You should see `HTTP/1.1 200` (or `301`/`302`) — not `Connection refused`.
+
+Test the database port:
+
+```bash
+DB_IP=$(sudo podman run --rm --env-file /root/minimal-build/govc.env \
+  docker.io/vmware/govc:latest /govc vm.ip todo-db)
+
+timeout 3 bash -c "echo >/dev/tcp/$DB_IP/5432" && echo "DB port open" || echo "DB port closed"
+```
 
 ### D) Check the bastion firewall rule
 
@@ -363,7 +403,21 @@ ssh demo@<todo-web-private-ip>
 # password: demo
 ```
 
-Useful for troubleshooting. The database VM has no SSH.
+Useful commands on **todo-web**:
+
+```sh
+sudo podman ps -a
+sudo podman logs todo-web
+sudo rc-status
+```
+
+Useful commands on **todo-db** (vSphere console only — no SSH):
+
+```sh
+sudo podman ps -a
+sudo podman logs todo-db
+sudo rc-service todo-db status
+```
 
 ---
 
@@ -438,6 +492,19 @@ sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags local
 
 ## If something goes wrong
 
+### Recommended first step
+
+Always pull the latest playbook fixes, then do a clean rebuild:
+
+```bash
+cd ~/workload-portability/ansible/vmware-minimal
+git pull
+sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env
+sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
+```
+
+If quay.io denies pulls during build, copy offline image tars first (see [Offline container images](#offline-container-images-when-quayio-denies-pulls)).
+
 ### "Permission denied" or Podman errors
 
 Make sure you're using `sudo`:
@@ -467,33 +534,71 @@ sudo podman run --rm docker.io/library/alpine:3.20 \
 
 If that fails, the bastion cannot reach the internet to pull container images.
 
-### Playbook hangs waiting for VM IP / VMware Tools not installed
+### Playbook hangs waiting for VM IP
 
-`govc vm.ip` only works when **open-vm-tools** is running inside the guest and reporting to vSphere. vSphere may show "VMware Tools: Not installed" until the VM boots and `open-vm-tools` starts.
+`govc vm.ip` needs **open-vm-tools** running inside the guest. First boot can take **2+ minutes** before the IP appears.
 
-The image **does** include `open-vm-tools` + `open-vm-tools-guestinfo`. First boot can take 1–2 minutes before the IP appears.
+1. Check the VM console in vSphere — did Alpine boot? Look for `[ ok ] Starting todo-db container`
+2. Wait longer: `-e vm_first_boot_pause=180`
+3. Or set static IPs in `credentials.env` to skip discovery:
 
-1. Check the VM console in vSphere — did Alpine boot? Any kernel/initramfs errors?
-2. Wait longer:
+```yaml
+db01_static_ip: "192.168.x.x"
+web01_static_ip: "192.168.x.x"
+```
+
+### `todo-db failed to start` on VM console
+
+Common causes and fixes:
+
+| Console message | Cause | Fix |
+|-----------------|-------|-----|
+| `eth0: No such device` / `ifup failed` | VMware NIC not ready at boot | `git pull` and rebuild (network-wait fix) |
+| `Read-only file system` | Root disk not remounted rw | `git pull` and rebuild (OpenRC `root` service fix) |
+| `podman pull failed` | quay.io denied or no internet on VM | `git pull` and rebuild (embedded images fix) |
+| `Loading embedded image from /var/images/...` | Working correctly | No action needed |
+
+On a running VM, try manually on the **todo-db console**:
+
+```sh
+mount -o remount,rw /
+sudo rc-service todo-db restart
+sudo podman ps -a
+```
+
+### quay.io denies pulls (build time)
+
+VMs **must not** pull from quay.io at runtime. Images are embedded during the bastion build.
+
+If the bastion also cannot pull, use [offline image tars](#offline-container-images-when-quayio-denies-pulls).
+
+### Web app loads but can't reach the database
+
+The web image was built with a **stale `DB_HOST`** (DHCP gave todo-db a different IP after rebuild). Rebuild **both** VMs together, or rebuild web with the current DB IP:
 
 ```bash
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env -e vm_first_boot_pause=180
+DB_IP=$(sudo podman run --rm --env-file /root/minimal-build/govc.env \
+  docker.io/vmware/govc:latest /govc vm.ip todo-db)
+
+sudo ansible-playbook build-minimal-vms.yml -e @credentials.env \
+  -e db_host=$DB_IP \
+  --tags web01
 ```
 
-3. **Fastest option — static IPs** in `credentials.env` (skips all discovery):
+On a running **todo-web** VM, you can also fix without rebuild:
 
-```yaml
-db01_static_ip: "192.168.108.50"
-web01_static_ip: "192.168.108.51"
+```sh
+sudo podman stop todo-web && sudo podman rm todo-web
+sudo podman run -d --name todo-web --network host \
+  -e DB_HOST=<current-todo-db-ip> \
+  -e DB_PORT=5432 \
+  quay.io/rh-ee-sbajaj/todo-web:latest
+sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 8080
 ```
 
-The playbook now tries **ARP first** (fast, from DHCP), then VMware Tools (slow on first boot). App containers are delayed 30s so tools can report first.
+### `ss: not found` on todo-web
 
-4. Or set only the DB IP if todo-db already has one:
-
-```yaml
-db_host: "192.168.x.x"
-```
+Harmless. The startup script tries to list open ports with `ss`, which is not installed on minimal Alpine. The container still starts — ignore this message if `podman ps` shows `todo-web` as **Up**.
 
 ### `govc.env` not found
 
@@ -527,27 +632,16 @@ Or delete them manually in vSphere, then re-run the build playbook.
 
 Work through this list in order:
 
-1. **Internal test first:** `curl http://<todo-web-ip>` from bastion — does that work?
-2. **Firewall rule:** `sudo firewall-cmd --list-forward-ports` — is there a rule pointing at todo-web?
-3. **Re-apply firewall** if the VM IP changed:
+1. **Internal test first:** `curl -I http://<todo-web-ip>` from bastion — do you get `HTTP/1.1 200`?
+2. **DB port open:** `timeout 3 bash -c "echo >/dev/tcp/<todo-db-ip>/5432"` — must succeed
+3. **Firewall rule:** `sudo firewall-cmd --list-forward-ports` — does `toaddr` match the **current** todo-web IP?
+4. **Re-apply firewall** if the VM IP changed (DHCP):
 
 ```bash
 sudo ansible-playbook build-minimal-vms.yml -e @credentials.env --tags bastion-firewall
 ```
 
-4. **Don't run nginx on the bastion** on port 80 — it fights with `firewalld` forwarding.
-
-### Web app loads but can't reach the database
-
-The web image was probably built **before** the database had an IP. Rebuild todo-web with the correct `db_host`:
-
-```bash
-sudo ansible-playbook build-minimal-vms.yml -e @credentials.env \
-  -e db_host=<todo-db-ip> \
-  --tags web01
-```
-
-You may also need to destroy the old todo-web VM first if the disk changed.
+5. **Don't run nginx on the bastion** on port 80 — it fights with `firewalld` forwarding.
 
 ### Conflicts with bootc track
 
@@ -568,6 +662,8 @@ Both tracks use VM names `todo-db` and `todo-web`. If you switched tracks, clean
 | **Role** | Reusable chunk of Ansible tasks — `alpine-vmdk`, `vmware-vm`, etc. |
 | **firewalld** | Linux firewall on the bastion — used to forward port 80 to your web VM |
 | **Wildcard DNS** | `*.cluster-XXXXX...` URLs all resolve to the bastion public IP |
+| **Embedded image** | Container image saved into the VMDK at build time — VMs load it locally at boot |
+| **Host networking** | Podman runs containers with `--network host` instead of port mapping |
 | **streamOptimized** | VMDK format VMware prefers for uploads — single file, compact |
 
 ---
@@ -595,9 +691,17 @@ Build output (with `sudo`): `/root/minimal-build/`
 # On bastion:
 cd ~/workload-portability/ansible/vmware-minimal
 git pull
-cp credentials.env.example credentials.env
-vi credentials.env          # fill in sandbox ID + password
+cp credentials.env.example credentials.env   # first time only
+vi credentials.env                           # fill in sandbox ID + password
+sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env
 sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
+```
+
+Verify from bastion:
+
+```bash
+curl -I http://$(sudo podman run --rm --env-file /root/minimal-build/govc.env \
+  docker.io/vmware/govc:latest /govc vm.ip todo-web)
 ```
 
 Then open in your laptop browser:
