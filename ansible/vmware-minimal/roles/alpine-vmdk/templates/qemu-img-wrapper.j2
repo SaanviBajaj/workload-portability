@@ -20,7 +20,8 @@ done
 
 exec podman run --rm \
   --user 0:0 \
-  -v "${BUILD_DIR}:/work:z" \
+  --security-opt label=disable \
+  -v "${BUILD_DIR}:/work" \
   -w /work \
   "${CONTAINER_IMAGE}" \
   sh -ec "apk add --no-cache qemu-img >/dev/null 2>&1 && exec qemu-img $(printf '%q ' "${CONTAINER_ARGS[@]}")"

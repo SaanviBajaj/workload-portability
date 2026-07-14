@@ -46,10 +46,7 @@
 - name: Verify containerized qemu-img works
   ansible.builtin.command:
     cmd: >-
-      podman run --rm --user 0:0
-      -v /tmp:/work:z
-      -w /work
-      {{ qemu_img_image }}
+      podman run --rm {{ qemu_img_image }}
       sh -ec "apk add --no-cache qemu-img >/dev/null && qemu-img --version"
   register: container_qemu_img
   changed_when: false
