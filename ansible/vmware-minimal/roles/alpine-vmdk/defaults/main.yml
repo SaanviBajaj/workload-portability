@@ -19,6 +19,8 @@ alpine_common_packages:
   - linux-virt
   - podman
   - open-vm-tools
+  - open-vm-tools-openrc
+  - open-vm-tools-guestinfo
 
 alpine_web_packages:
   - openssh
@@ -30,7 +32,7 @@ alpine_openrc_services:
   - { service: hostname, runlevel: boot }
   - { service: networking, runlevel: boot }
   - { service: local, runlevel: default }
-  - { service: vmtoolsd, runlevel: default }
+  - { service: open-vm-tools, runlevel: boot }
 
 alpine_web_openrc_services:
   - { service: sshd, runlevel: default }
