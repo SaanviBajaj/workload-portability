@@ -213,6 +213,13 @@
         mode: "0644"
       when: alpine_role == 'web'
 
+    - name: Generate SSH host keys for first boot
+      ansible.builtin.command:
+        cmd: >-
+          {{ alpine_podman_run }} -v {{ alpine_mnt }}:/mnt {{ alpine_image }}
+          chroot /mnt ssh-keygen -A
+      when: alpine_role == 'web'
+
     - name: Enable OpenRC services in Alpine chroot
       ansible.builtin.command:
         cmd: >-

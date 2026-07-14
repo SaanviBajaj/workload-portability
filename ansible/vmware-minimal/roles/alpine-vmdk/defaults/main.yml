@@ -19,6 +19,7 @@ alpine_common_packages:
   - grub-bios
   - linux-virt
   - podman
+  - iptables
   - open-vm-tools
   - open-vm-tools-openrc
   - open-vm-tools-guestinfo
@@ -33,6 +34,7 @@ alpine_web_packages:
   - sudo
 
 alpine_openrc_services:
+  - { service: cgroups, runlevel: boot }
   - { service: hostname, runlevel: boot }
   - { service: local, runlevel: default }
   - { service: open-vm-tools, runlevel: default }
