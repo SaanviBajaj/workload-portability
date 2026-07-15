@@ -464,11 +464,11 @@
       ansible.builtin.command:
         cmd: sync
 
-    - name: Convert raw disk to streamOptimized VMDK
+    - name: Convert raw disk to VMware-compatible VMDK
       ansible.builtin.command:
         cmd: >-
           {{ alpine_qemu_img }} convert -f raw -O vmdk
-          -o subformat=streamOptimized
+          -o subformat={{ alpine_vmdk_subformat }}
           {{ alpine_raw }} {{ alpine_vmdk }}
 
     - name: Show Alpine VMDK size
