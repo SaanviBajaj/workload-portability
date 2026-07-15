@@ -1,4 +1,10 @@
 ---
+- name: Remove stale upload VMDK on datastore root
+  ansible.builtin.command:
+    cmd: "{{ govc_cmd }} datastore.rm {{ vm_vmdk_upload }}"
+  failed_when: false
+  changed_when: false
+
 - name: Upload VMDK to datastore root
   ansible.builtin.command:
     cmd: >-
@@ -18,6 +24,12 @@
     vm_datastore_mkdir.rc != 0 and
     'already exists' not in (vm_datastore_mkdir.stderr | default('') | lower)
   changed_when: vm_datastore_mkdir.rc == 0
+
+- name: Remove stale final VMDK in datastore subfolder
+  ansible.builtin.command:
+    cmd: "{{ govc_cmd }} datastore.rm {{ vm_vmdk_final }}"
+  failed_when: false
+  changed_when: false
 
 - name: Move VMDK into datastore subfolder (clears VMFS lock)
   ansible.builtin.command:
