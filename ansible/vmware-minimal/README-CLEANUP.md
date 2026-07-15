@@ -40,6 +40,31 @@ sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags bastion
 sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags local
 ```
 
+### Manual datastore cleanup (when UI or playbook leaves orphans)
+
+VMware cannot delete a **folder** while a **VMDK file** is still inside it. Destroy VMs first, then remove files, then folders.
+
+```bash
+GOVC="sudo podman run --rm --env-file /root/minimal-build/govc.env docker.io/vmware/govc:latest /govc"
+
+# See what is left
+$GOVC datastore.ls Workload-Portability/
+$GOVC datastore.ls Workload-Portability/todo-db/ 2>/dev/null || true
+
+# Delete VMDK files first (both subfolder and orphan root copies)
+$GOVC datastore.rm Workload-Portability/todo-db/todo-db-disk1.vmdk
+$GOVC datastore.rm Workload-Portability/todo-db-disk1.vmdk
+$GOVC datastore.rm Workload-Portability/todo-web/todo-web-disk1.vmdk
+$GOVC datastore.rm Workload-Portability/todo-web-disk1.vmdk
+
+# Then delete folders
+$GOVC datastore.rm Workload-Portability/todo-db
+$GOVC datastore.rm Workload-Portability/todo-web
+$GOVC datastore.rm Workload-Portability
+```
+
+If `datastore.rm` says the file is locked, power off and destroy the VM in vSphere (or cancel MTV migration plans), wait 60s, retry.
+
 ---
 
 ## Switching from the bootc track

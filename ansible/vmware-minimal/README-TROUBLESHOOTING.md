@@ -208,6 +208,26 @@ sudo ansible-playbook build-minimal-vms.yml -e @credentials.env --tags db01
 
 ---
 
+## `datastore.mv` — VMDK already exists
+
+The build uploads to `Workload-Portability/todo-db-disk1.vmdk` then moves to `Workload-Portability/todo-db/todo-db-disk1.vmdk`. A **failed or partial cleanup** leaves the subfolder copy behind, so the move fails with **already exists**.
+
+**Fix now (bastion):**
+
+```bash
+GOVC="sudo podman run --rm --env-file /root/minimal-build/govc.env docker.io/vmware/govc:latest /govc"
+
+$GOVC datastore.rm Workload-Portability/todo-db/todo-db-disk1.vmdk
+$GOVC datastore.rm Workload-Portability/todo-db-disk1.vmdk
+$GOVC datastore.rm Workload-Portability/todo-db
+```
+
+Then re-run the build. After `git pull`, the playbook removes stale VMDKs before upload/move automatically.
+
+See also [README-CLEANUP.md](README-CLEANUP.md) for full manual datastore cleanup.
+
+---
+
 ## VMs already exist from a previous run
 
 Either destroy them first:
