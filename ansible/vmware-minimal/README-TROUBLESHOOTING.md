@@ -170,6 +170,33 @@ sudo podman run --rm --env-file /root/minimal-build/govc.env \
 
 ---
 
+## `govc vm.destroy` — Device or resource busy
+
+`vm.destroy` failed because VMware still has a lock on the VM. Common causes:
+
+1. **OpenShift MTV migration plan** is attached — cancel or delete the plan in the MTV UI first
+2. VM is **still powered on** or **still shutting down** — wait 30–60s after power off
+3. A **snapshot** or backup job holds the disk
+
+**Fix now (on bastion, without git pull):**
+
+```bash
+# Hard power off and wait
+sudo podman run --rm --env-file /root/minimal-build/govc.env \
+  docker.io/vmware/govc:latest /govc vm.power -off -wait=true todo-web
+
+# Retry destroy after a minute
+sleep 60
+sudo podman run --rm --env-file /root/minimal-build/govc.env \
+  docker.io/vmware/govc:latest /govc vm.destroy todo-web
+```
+
+If you were migrating to OpenShift Virtualization, **delete the MigrationPlan** (or cancel an in-progress migration) in the OpenShift console, then retry cleanup.
+
+After `git pull`, the cleanup playbook waits for power-off and retries destroy automatically.
+
+---
+
 ## VMDK shows as "Locked" in vSphere
 
 A previous upload may have left a stuck lock. Run cleanup, then re-run:

@@ -135,9 +135,18 @@
       when: cleanup_vms | bool
       tags: [vms]
 
-    - name: Power off todo-web VM
+    - name: Gracefully power off todo-web VM
       ansible.builtin.command:
-        cmd: "{{ govc_cmd }} vm.power -s -off {{ web01_vm_name }}"
+        cmd: "{{ govc_cmd }} vm.power -s -off -wait=true {{ web01_vm_name }}"
+      when:
+        - cleanup_vms | bool
+        - web01_vm_find.stdout | trim | length > 0
+      failed_when: false
+      tags: [vms]
+
+    - name: Hard power off todo-web VM if still running
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} vm.power -off -wait=true {{ web01_vm_name }}"
       when:
         - cleanup_vms | bool
         - web01_vm_find.stdout | trim | length > 0
@@ -147,9 +156,26 @@
     - name: Destroy todo-web VM
       ansible.builtin.command:
         cmd: "{{ govc_cmd }} vm.destroy {{ web01_vm_name }}"
+      register: web01_vm_destroy
+      until: web01_vm_destroy.rc == 0
+      retries: 6
+      delay: 10
       when:
         - cleanup_vms | bool
         - web01_vm_find.stdout | trim | length > 0
+      tags: [vms]
+
+    - name: Fail when todo-web VM could not be destroyed
+      ansible.builtin.fail:
+        msg: >-
+          vm.destroy failed for {{ web01_vm_name }} (often "Device or resource busy").
+          Cancel any OpenShift MTV migration plans targeting this VM, confirm it is
+          powered off in vSphere, wait a minute, then retry:
+            sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags vms
+      when:
+        - cleanup_vms | bool
+        - web01_vm_find.stdout | trim | length > 0
+        - web01_vm_destroy.rc | default(1) != 0
       tags: [vms]
 
     - name: Check whether todo-db VM exists
@@ -161,9 +187,18 @@
       when: cleanup_vms | bool
       tags: [vms]
 
-    - name: Power off todo-db VM
+    - name: Gracefully power off todo-db VM
       ansible.builtin.command:
-        cmd: "{{ govc_cmd }} vm.power -s -off {{ db01_vm_name }}"
+        cmd: "{{ govc_cmd }} vm.power -s -off -wait=true {{ db01_vm_name }}"
+      when:
+        - cleanup_vms | bool
+        - db01_vm_find.stdout | trim | length > 0
+      failed_when: false
+      tags: [vms]
+
+    - name: Hard power off todo-db VM if still running
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} vm.power -off -wait=true {{ db01_vm_name }}"
       when:
         - cleanup_vms | bool
         - db01_vm_find.stdout | trim | length > 0
@@ -173,9 +208,26 @@
     - name: Destroy todo-db VM
       ansible.builtin.command:
         cmd: "{{ govc_cmd }} vm.destroy {{ db01_vm_name }}"
+      register: db01_vm_destroy
+      until: db01_vm_destroy.rc == 0
+      retries: 6
+      delay: 10
       when:
         - cleanup_vms | bool
         - db01_vm_find.stdout | trim | length > 0
+      tags: [vms]
+
+    - name: Fail when todo-db VM could not be destroyed
+      ansible.builtin.fail:
+        msg: >-
+          vm.destroy failed for {{ db01_vm_name }} (often "Device or resource busy").
+          Cancel any OpenShift MTV migration plans targeting this VM, confirm it is
+          powered off in vSphere, wait a minute, then retry:
+            sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags vms
+      when:
+        - cleanup_vms | bool
+        - db01_vm_find.stdout | trim | length > 0
+        - db01_vm_destroy.rc | default(1) != 0
       tags: [vms]
 
     # -------------------------------------------------------------------------
