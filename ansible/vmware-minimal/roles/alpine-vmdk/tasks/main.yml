@@ -423,6 +423,29 @@
         path: "{{ alpine_mnt }}/var/cache/apk"
         state: absent
 
+    - name: Measure free space on Alpine root filesystem
+      ansible.builtin.shell: |
+        set -o pipefail
+        df -BM {{ alpine_mnt }} | awk 'NR==2 { gsub(/M$/, "", $4); print $4 }'
+      args:
+        executable: /bin/bash
+      register: alpine_root_free_mb
+      changed_when: false
+
+    - name: Fail when root filesystem lacks space for OpenShift migration
+      ansible.builtin.fail:
+        msg: >-
+          Alpine rootfs for {{ alpine_role }} has only {{ alpine_root_free_mb.stdout | trim }} MB free on '/';
+          need at least {{ alpine_min_free_mb }} MB for OpenShift Virtualization / MTV guest conversion.
+          Increase disk_mb (currently {{ disk_mb }}) in group_vars/all.yml and rebuild.
+      when: (alpine_root_free_mb.stdout | default('0') | trim | int) < (alpine_min_free_mb | int)
+
+    - name: Report Alpine root filesystem free space
+      ansible.builtin.debug:
+        msg: >-
+          Alpine {{ alpine_role }} rootfs has {{ alpine_root_free_mb.stdout | trim }} MB free
+          (minimum {{ alpine_min_free_mb }} MB required for migration).
+
     - name: Configure GRUB defaults for Alpine rootfs
       ansible.builtin.template:
         src: grub-default.j2

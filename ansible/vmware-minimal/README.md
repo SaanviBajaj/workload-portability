@@ -9,7 +9,7 @@ This playbook builds and deploys two **small** VMs for the todo app demo:
 
 **Run everything on your bastion VM** — the Linux VM in your demo environment that can talk to VMware.
 
-This is the **minimal** track. It makes **smaller disk images** than the bootc track (~600 MB vs ~1.7 GB per VM).
+This is the **minimal** track. It makes **smaller disk images** than the bootc track (~768 MB vs ~1.7 GB per VM).
 
 **Important:** Container images are **preloaded into Podman storage at build time** on the bastion (no `.tar` left on disk). The VMs do **not** pull from quay.io at boot (quay.io often denies pulls in lab environments).
 
@@ -37,7 +37,7 @@ Normally you'd install an OS, install Docker/Podman, configure networking, uploa
 | | Bootc track (`vmware-bootc`) | **Minimal track (this guide)** |
 |---|------------------------------|--------------------------------|
 | OS inside the VM | Full CentOS Stream 9 bootc image | Tiny Alpine Linux |
-| Disk size | ~1.7 GB per VM | **~600 MB per VM** (preloaded container images) |
+| Disk size | ~1.7 GB per VM | **~768 MB per VM** (preloaded container images, migration-ready) |
 | Good when | You want a "real" RHEL-like VM | You want small disks for demos/migration |
 
 Both tracks create the **same VM names** (`todo-db`, `todo-web`). **Do not run both at the same time** — pick one track.
@@ -54,8 +54,8 @@ Each VM boots from a **VMDK file** — think of it as a virtual hard drive you u
 
 | VM | Build output on bastion | Size (approx.) |
 |----|-------------------------|----------------|
-| `todo-db` | `todo-db/output/disk.vmdk` | **~600 MB** provisioned |
-| `todo-web` | `todo-web/output/disk.vmdk` | **~600 MB** provisioned |
+| `todo-db` | `todo-db/output/disk.vmdk` | **~768 MB** provisioned |
+| `todo-web` | `todo-web/output/disk.vmdk` | **~768 MB** provisioned |
 
 The playbook builds these on the bastion using:
 
