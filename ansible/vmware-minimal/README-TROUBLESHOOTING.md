@@ -77,7 +77,9 @@ Common causes and fixes:
 | `Read-only file system` | Root disk not remounted rw | `git pull` and rebuild (OpenRC `root` service fix) |
 | `podman pull failed` | quay.io denied or no internet on VM | `git pull` and rebuild (images preloaded at build time) |
 | `container image missing from VMDK` | VMDK built without preloaded image | Rebuild with `build-minimal-vms.yml` |
-| `no space left on device` during `Load container image` | 600 MB disk too tight for chroot `podman load` (tar + image + temp) | `git pull` — build bind-mounts the tar from bastion and uses bastion `/tmp` for scratch space |
+| `no space left on device` during `Load container image` | Disk too tight for chroot `podman load` (tar + image + temp) | `git pull` — build bind-mounts the tar from bastion and uses bastion `/tmp` for scratch space; default `disk_mb` is now 768 |
+| Build fails: `need at least 100 MB` for migration | Rootfs too full after image preload | Increase `disk_mb` or shrink container images; default is 768 MB |
+| MTV / OpenShift Virt: `Insufficient free space for conversion on '/'` | Guest `/` has &lt; 100 MB free (common with old 600 MB disks) | Rebuild with `git pull` (`disk_mb: 768`) and re-run migration validation |
 | `database configuration mismatch` / `podman-preload/libpod` | Podman storage copied from bastion retained wrong paths | `git pull` and rebuild — image is loaded inside the Alpine chroot so paths match `/var/lib/containers/storage` |
 
 On a running VM, try manually on the **todo-db console**:
@@ -90,7 +92,34 @@ sudo podman ps -a
 
 ---
 
-## quay.io denies pulls (build time)
+## OpenShift Virtualization / MTV migration — insufficient free space on `/`
+
+Migration validation requires **at least 100 MB free** on the guest root filesystem for conversion scratch space.
+
+The playbook now defaults to **`disk_mb: 768`** and **fails the build** if free space on `/` would be below **`alpine_min_free_mb: 100`** after the image is preloaded.
+
+If you still see this on VMs built before that change:
+
+```bash
+cd ~/workload-portability/ansible/vmware-minimal
+git pull
+sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env
+sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
+```
+
+Verify on the **todo-db console** before migrating:
+
+```sh
+df -h /
+# Avail on / should be ≥ 100 MB
+```
+
+Override the minimum if your migration tooling changes requirements:
+
+```bash
+sudo ansible-playbook build-minimal-vms.yml -e @credentials.env -e alpine_min_free_mb=150
+```
+
 
 VMs **must not** pull from quay.io at runtime. Images are preloaded into Podman storage during the bastion build.
 

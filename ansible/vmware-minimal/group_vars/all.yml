@@ -36,7 +36,9 @@ todo_web_image_tar: "{{ work_base }}/todo-web.tar"
 alpine_version: "3.20"
 alpine_mirror: "https://dl-cdn.alpinelinux.org/alpine"
 alpine_image: "docker.io/library/alpine:{{ alpine_version }}"
-disk_mb: 600
+# 768 MB leaves ≥100 MB free on / for OpenShift Virtualization / MTV guest conversion
+disk_mb: 768
+alpine_min_free_mb: 100
 
 # Podman image used for qemu-img when the bastion has no dnf repos
 qemu_img_image: "docker.io/library/alpine:3.20"
