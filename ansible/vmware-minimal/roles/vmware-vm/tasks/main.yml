@@ -12,29 +12,43 @@
   loop:
     - "{{ vm_vmdk_upload }}"
     - "{{ vm_vmdk_final }}"
-    - "{{ vm_vmdk_imported }}"
+    - "{{ vm_vmdk_import_dir }}/disk.vmdk"
     - "{{ vm_vmdk_import_dir }}"
   failed_when: false
   changed_when: false
 
-- name: Import VMDK to datastore via govc
+- name: Upload VMDK to datastore root
   ansible.builtin.command:
     cmd: >-
       podman run --rm
       --env-file {{ govc_env_path }}
       -v {{ vm_build_dir }}/output:/output:z
       {{ govc_image }}
-      /govc import.vmdk
-      -force=true
+      /govc datastore.upload
       /output/disk.vmdk
-      {{ vm_vmdk_import_dir }}
+      {{ vm_vmdk_upload }}
+  when: vm_find.stdout | trim | length == 0
+
+- name: Ensure datastore subfolder exists
+  ansible.builtin.command:
+    cmd: "{{ govc_cmd }} datastore.mkdir {{ vm_vmdk_import_dir }}"
+  register: vm_datastore_mkdir
+  failed_when: >-
+    vm_datastore_mkdir.rc != 0 and
+    'already exists' not in (vm_datastore_mkdir.stderr | default('') | lower)
+  changed_when: vm_datastore_mkdir.rc == 0
+  when: vm_find.stdout | trim | length == 0
+
+- name: Move VMDK into datastore subfolder
+  ansible.builtin.command:
+    cmd: "{{ govc_cmd }} datastore.mv {{ vm_vmdk_upload }} {{ vm_vmdk_final }}"
   when: vm_find.stdout | trim | length == 0
 
 - name: Set VM power-on flag for govc
   ansible.builtin.set_fact:
     vm_create_power_flag: "{{ '-on=true' if vm_power_on | bool else '-on=false' }}"
 
-- name: Create VM from imported VMDK
+- name: Create VM from uploaded VMDK
   ansible.builtin.command:
     cmd: >-
       {{ govc_cmd }} vm.create
@@ -43,8 +57,9 @@
       -net "{{ vm_network }}"
       -net.adapter {{ vm_net_adapter }}
       -folder "{{ vm_folder }}"
-      -disk="{{ vm_vmdk_imported }}"
+      -disk="{{ vm_vmdk_final }}"
       -disk.controller {{ vm_disk_controller }}
+      -link=false
       -firmware {{ vm_firmware }}
       -g {{ vm_guest_id }}
       {{ vm_create_power_flag }}
