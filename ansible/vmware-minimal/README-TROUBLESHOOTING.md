@@ -210,7 +210,7 @@ sudo ansible-playbook build-minimal-vms.yml -e @credentials.env --tags db01
 
 ## `vm.create` — Invalid configuration for device '1'
 
-Older playbook versions uploaded a `streamOptimized` VMDK and attached it with `vm.create -disk`, which often fails on VMFS. Current builds use `monolithicSparse` VMDKs and `govc import.custom` instead.
+Older playbook versions used `datastore.upload` and attached the disk with `vm.create -disk`, which often fails on VMFS. Current builds use `govc import.vmdk` (requires a `streamOptimized` VMDK) and then `vm.create -disk` against the imported path.
 
 **Fix:** `git pull` and rebuild:
 

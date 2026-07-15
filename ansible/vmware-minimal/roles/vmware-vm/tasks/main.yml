@@ -6,35 +6,49 @@
   failed_when: false
   changed_when: false
 
-- name: Remove stale VMDK artifacts from previous upload workflow
+- name: Remove stale VMDK artifacts from previous deploys
   ansible.builtin.command:
     cmd: "{{ govc_cmd }} datastore.rm {{ item }}"
   loop:
     - "{{ vm_vmdk_upload }}"
     - "{{ vm_vmdk_final }}"
+    - "{{ vm_vmdk_imported }}"
+    - "{{ vm_vmdk_import_dir }}"
   failed_when: false
   changed_when: false
 
-- name: Import VMDK and create VM via govc
+- name: Import VMDK to datastore via govc
   ansible.builtin.command:
     cmd: >-
       podman run --rm
       --env-file {{ govc_env_path }}
       -v {{ vm_build_dir }}/output:/output:z
       {{ govc_image }}
-      /govc import.custom
-      -name={{ vm_name }}
-      -folder="{{ vm_folder }}"
-      -ds={{ govc_datastore }}
-      -disk=/output/disk.vmdk
-      -disk.controller={{ vm_disk_controller }}
-      -net="{{ vm_network }}"
-      -net.adapter={{ vm_net_adapter }}
-      -m={{ vm_memory_mb }}
-      -c={{ vm_cpus }}
-      -g={{ vm_guest_id }}
-      -firmware={{ vm_firmware }}
-      -on={{ vm_power_on | bool | lower }}
+      /govc import.vmdk
+      -force=true
+      /output/disk.vmdk
+      {{ vm_vmdk_import_dir }}
+  when: vm_find.stdout | trim | length == 0
+
+- name: Set VM power-on flag for govc
+  ansible.builtin.set_fact:
+    vm_create_power_flag: "{{ '-on=true' if vm_power_on | bool else '-on=false' }}"
+
+- name: Create VM from imported VMDK
+  ansible.builtin.command:
+    cmd: >-
+      {{ govc_cmd }} vm.create
+      -c {{ vm_cpus }}
+      -m {{ vm_memory_mb }}
+      -net "{{ vm_network }}"
+      -net.adapter {{ vm_net_adapter }}
+      -folder "{{ vm_folder }}"
+      -disk="{{ vm_vmdk_imported }}"
+      -disk.controller {{ vm_disk_controller }}
+      -firmware {{ vm_firmware }}
+      -g {{ vm_guest_id }}
+      {{ vm_create_power_flag }}
+      {{ vm_name }}
   when: vm_find.stdout | trim | length == 0
 
 - name: Publish static VM IP when configured

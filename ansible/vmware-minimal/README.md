@@ -381,7 +381,7 @@ sudo ansible-playbook build-minimal-vms.yml -e @credentials.env \
 | **Preloaded image** | Container image loaded into Podman storage at build time — VMs run it locally at boot |
 | **Host networking** | Podman runs containers with `--network host` instead of port mapping |
 | **streamOptimized** | Compact single-file VMDK (legacy upload path) |
-| **monolithicSparse** | VMware attach/import-friendly VMDK format (default) |
+| **streamOptimized** | VMware import-friendly VMDK format required by `govc import.vmdk` |
 
 ---
 

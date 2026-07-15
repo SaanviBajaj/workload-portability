@@ -2,7 +2,7 @@
 # db or web — set by the playbook
 alpine_role: db
 alpine_min_free_mb: 100
-alpine_vmdk_subformat: monolithicSparse
+alpine_vmdk_subformat: streamOptimized
 alpine_build_dir: "{{ work_base }}/alpine-build"
 alpine_hostname: alpine-vm
 
