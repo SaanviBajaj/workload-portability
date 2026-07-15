@@ -8,7 +8,6 @@ vm_net_adapter: e1000
 vm_vmdk_upload: "{{ datastore_base }}/{{ vm_vmdk_filename }}"
 vm_vmdk_final: "{{ datastore_base }}/{{ vm_datastore_folder }}/{{ vm_vmdk_filename }}"
 vm_vmdk_import_dir: "{{ datastore_base }}/{{ vm_datastore_folder }}"
-vm_vmdk_imported: "{{ vm_vmdk_import_dir }}/disk.vmdk"
 vm_vmdk_local: "{{ vm_build_dir }}/output/disk.vmdk"
 
 govc_cmd: >-

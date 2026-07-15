@@ -210,7 +210,13 @@ sudo ansible-playbook build-minimal-vms.yml -e @credentials.env --tags db01
 
 ## `vm.create` — Invalid configuration for device '1'
 
-Older playbook versions used `datastore.upload` and attached the disk with `vm.create -disk`, which often fails on VMFS. Current builds use `govc import.vmdk` (requires a `streamOptimized` VMDK) and then `vm.create -disk` against the imported path.
+Usually means the uploaded VMDK was attached with the wrong link mode or path. Current builds:
+
+1. Upload with `govc datastore.upload` (sandbox-friendly; `import.vmdk` often fails with permission denied)
+2. Move to `Workload-Portability/<vm>/<vm>-disk1.vmdk`
+3. Create the VM with `vm.create -disk=... -link=false`
+
+`import.vmdk` needs extra resource-pool permissions that demo sandbox accounts typically do not have.
 
 **Fix:** `git pull` and rebuild:
 
@@ -221,7 +227,13 @@ sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
 
 ---
 
-## `datastore.mv` — VMDK already exists
+## `import.vmdk` — Permission to perform this operation was denied
+
+Demo sandbox accounts can upload files with `datastore.upload` but often cannot run `import.vmdk` (it provisions a temporary VM and needs resource-pool rights).
+
+**Fix:** `git pull` — current playbooks use `datastore.upload` + `vm.create -link=false` instead.
+
+---
 
 The build uploads to `Workload-Portability/todo-db-disk1.vmdk` then moves to `Workload-Portability/todo-db/todo-db-disk1.vmdk`. A **failed or partial cleanup** leaves the subfolder copy behind, so the move fails with **already exists**.
 
