@@ -208,6 +208,19 @@ sudo ansible-playbook build-minimal-vms.yml -e @credentials.env --tags db01
 
 ---
 
+## `vm.create` — Invalid configuration for device '1'
+
+Older playbook versions uploaded a `streamOptimized` VMDK and attached it with `vm.create -disk`, which often fails on VMFS. Current builds use `monolithicSparse` VMDKs and `govc import.custom` instead.
+
+**Fix:** `git pull` and rebuild:
+
+```bash
+sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env --tags vms
+sudo ansible-playbook build-minimal-vms.yml -e @credentials.env
+```
+
+---
+
 ## `datastore.mv` — VMDK already exists
 
 The build uploads to `Workload-Portability/todo-db-disk1.vmdk` then moves to `Workload-Portability/todo-db/todo-db-disk1.vmdk`. A **failed or partial cleanup** leaves the subfolder copy behind, so the move fails with **already exists**.

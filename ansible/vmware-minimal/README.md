@@ -380,7 +380,8 @@ sudo ansible-playbook build-minimal-vms.yml -e @credentials.env \
 | **Wildcard DNS** | `*.cluster-XXXXX...` URLs all resolve to the bastion public IP |
 | **Preloaded image** | Container image loaded into Podman storage at build time — VMs run it locally at boot |
 | **Host networking** | Podman runs containers with `--network host` instead of port mapping |
-| **streamOptimized** | VMDK format VMware prefers for uploads — single file, compact |
+| **streamOptimized** | Compact single-file VMDK (legacy upload path) |
+| **monolithicSparse** | VMware attach/import-friendly VMDK format (default) |
 
 ---
 
