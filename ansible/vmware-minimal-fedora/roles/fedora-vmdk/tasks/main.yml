@@ -455,6 +455,16 @@
         executable: /bin/bash
       changed_when: true
 
+    - name: Ensure chroot mount points exist for boot tooling
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - dev
+        - proc
+        - sys
+
     - name: Bind mount pseudo-filesystems into Fedora chroot for boot tooling
       ansible.builtin.shell: |
         set -euo pipefail
@@ -504,15 +514,6 @@
         executable: /bin/bash
       changed_when: true
 
-    - name: Unmount pseudo-filesystems from Fedora chroot after boot tooling
-      ansible.builtin.command:
-        cmd: umount {{ fedora_mnt }}/{{ item }}
-      loop:
-        - sys
-        - proc
-        - dev
-      failed_when: false
-
     - name: Configure GRUB defaults for Fedora rootfs
       ansible.builtin.template:
         src: grub-default.j2
@@ -526,6 +527,15 @@
     - name: Generate GRUB configuration in Fedora chroot
       ansible.builtin.command:
         cmd: chroot {{ fedora_mnt }} grub2-mkconfig -o /boot/grub2/grub.cfg
+
+    - name: Unmount pseudo-filesystems from Fedora chroot after boot tooling
+      ansible.builtin.command:
+        cmd: umount {{ fedora_mnt }}/{{ item }}
+      loop:
+        - sys
+        - proc
+        - dev
+      failed_when: false
 
     - name: Verify virt-v2v inspection markers exist in Fedora rootfs
       ansible.builtin.shell: |
