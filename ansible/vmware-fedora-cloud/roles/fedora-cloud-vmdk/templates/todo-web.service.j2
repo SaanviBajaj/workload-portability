@@ -1,0 +1,14 @@
+[Unit]
+Description=todo-web container (Podman host network)
+After=network-online.target vmtoolsd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/todo-start
+ExecStop=/usr/bin/podman rm -f todo-web
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

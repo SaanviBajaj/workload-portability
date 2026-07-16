@@ -43,7 +43,7 @@ Normally you'd install an OS, install Docker/Podman, configure networking, uploa
 
 All tracks create the **same VM names** (`todo-db`, `todo-web`). **Do not run more than one at the same time** — pick one track.
 
-If you need MTV / OpenShift Virtualization migration, use the **bootc** track instead of Alpine.
+If you need MTV / OpenShift Virtualization migration, use the **bootc** track or the **Fedora Cloud** track (`ansible/vmware-fedora-cloud/`) instead of Alpine.
 
 If you already deployed the bootc VMs, see [README-CLEANUP.md](README-CLEANUP.md).
 

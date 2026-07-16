@@ -1,0 +1,10 @@
+---
+bastion_build_packages:
+  - curl
+  - qemu-img
+  - guestfs-tools
+  - libguestfs
+  - libguestfs-xfs
+  - virt-v2v
+qemu_img_packages:
+  - qemu-img

@@ -1,0 +1,82 @@
+---
+- name: Set Cloud Base image filename
+  ansible.builtin.set_fact:
+    fedora_cloud_image_file: "{{ fedora_cloud_image if fedora_cloud_image | length > 0 else fedora_cloud_image_default }}"
+
+- name: Download Fedora Cloud CHECKSUM file
+  ansible.builtin.get_url:
+    url: "{{ fedora_cloud_mirror }}/Fedora-Cloud-{{ fedora_version }}-1.6-x86_64-CHECKSUM"
+    dest: "{{ fedora_cloud_cache_dir }}/Fedora-Cloud-{{ fedora_version }}-CHECKSUM"
+    mode: "0644"
+  register: fedora_checksum_download
+  failed_when: false
+
+- name: Check whether CHECKSUM file exists
+  ansible.builtin.stat:
+    path: "{{ fedora_cloud_cache_dir }}/Fedora-Cloud-{{ fedora_version }}-CHECKSUM"
+  register: fedora_checksum_stat
+
+- name: Discover Cloud Base Generic filename from CHECKSUM when available
+  ansible.builtin.shell: |
+    set -o pipefail
+    grep -E 'Fedora-Cloud-Base-Generic-{{ fedora_version }}-.*\.x86_64\.qcow2$' \
+      "{{ fedora_cloud_cache_dir }}/Fedora-Cloud-{{ fedora_version }}-CHECKSUM" \
+      | head -1 \
+      | awk '{print $NF}' \
+      | sed 's#^\./##'
+  args:
+    executable: /bin/bash
+  register: fedora_checksum_name
+  changed_when: false
+  failed_when: false
+  when: fedora_checksum_stat.stat.exists
+
+- name: Override Cloud Base filename from CHECKSUM
+  ansible.builtin.set_fact:
+    fedora_cloud_image_file: "{{ fedora_checksum_name.stdout | trim }}"
+  when:
+    - fedora_checksum_name.stdout is defined
+    - fedora_checksum_name.stdout | trim | length > 0
+
+- name: Set Cloud Base cache path
+  ansible.builtin.set_fact:
+    fedora_cloud_qcow_cache: "{{ fedora_cloud_cache_dir }}/{{ fedora_cloud_image_file }}"
+
+- name: Check for cached Cloud Base qcow2
+  ansible.builtin.stat:
+    path: "{{ fedora_cloud_qcow_cache }}"
+  register: fedora_cloud_cache_stat
+
+- name: Download Fedora Cloud Base Generic qcow2
+  ansible.builtin.get_url:
+    url: "{{ fedora_cloud_mirror }}/{{ fedora_cloud_image_file }}"
+    dest: "{{ fedora_cloud_qcow_cache }}"
+    mode: "0644"
+  when: not fedora_cloud_cache_stat.stat.exists
+
+- name: Verify Cloud Base SHA256 when CHECKSUM is present
+  ansible.builtin.shell: |
+    set -o pipefail
+    cd "{{ fedora_cloud_cache_dir }}"
+    grep -F "{{ fedora_cloud_image_file }}" "Fedora-Cloud-{{ fedora_version }}-CHECKSUM" \
+      | sha256sum -c -
+  args:
+    executable: /bin/bash
+  when: fedora_checksum_stat.stat.exists
+  changed_when: false
+  failed_when: false
+  register: fedora_sha_check
+
+- name: Warn when SHA256 verification was skipped or failed
+  ansible.builtin.debug:
+    msg: >-
+      SHA256 verification for {{ fedora_cloud_image_file }} was skipped or did not pass.
+      Continuing with cached/downloaded image — confirm mirror integrity if builds misbehave.
+  when: fedora_sha_check is skipped or (fedora_sha_check.rc | default(1) != 0)
+
+- name: Copy Cloud Base qcow2 into build work dir
+  ansible.builtin.copy:
+    src: "{{ fedora_cloud_qcow_cache }}"
+    dest: "{{ fedora_qcow_work }}"
+    remote_src: true
+    mode: "0644"

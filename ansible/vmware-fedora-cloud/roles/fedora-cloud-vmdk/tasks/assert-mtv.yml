@@ -1,0 +1,64 @@
+---
+- name: Read os-release from repacked image
+  ansible.builtin.command:
+    cmd: virt-cat -a {{ fedora_qcow_repacked }} /etc/os-release
+  environment:
+    LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
+  register: fedora_os_release
+  changed_when: false
+
+- name: Assert ID=fedora in os-release
+  ansible.builtin.assert:
+    that:
+      - "'ID=fedora' in fedora_os_release.stdout"
+    fail_msg: >-
+      /etc/os-release missing ID=fedora — MTV will reject this guest.
+      Got: {{ fedora_os_release.stdout }}
+
+- name: List /boot kernels in repacked image
+  ansible.builtin.command:
+    cmd: virt-ls -a {{ fedora_qcow_repacked }} /boot
+  environment:
+    LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
+  register: fedora_boot_ls
+  changed_when: false
+
+- name: Assert kernel and initramfs exist under /boot
+  ansible.builtin.assert:
+    that:
+      - fedora_boot_ls.stdout is search('vmlinuz')
+      - fedora_boot_ls.stdout is search('initramfs') or fedora_boot_ls.stdout is search('initrd')
+    fail_msg: >-
+      /boot is missing vmlinuz/initramfs — virt-v2v inspection will fail.
+      Listing: {{ fedora_boot_ls.stdout }}
+
+- name: Check open-vm-tools / vmtoolsd presence
+  ansible.builtin.shell: |
+    set -o pipefail
+    virt-cat -a {{ fedora_qcow_repacked }} /usr/lib/systemd/system/vmtoolsd.service 2>/dev/null \
+      || virt-ls -a {{ fedora_qcow_repacked }} /usr/bin | grep -E 'vmtoolsd|vmware-toolbox' \
+      || virt-ls -a {{ fedora_qcow_repacked }} /usr/sbin | grep -E 'vmtoolsd'
+  args:
+    executable: /bin/bash
+  environment:
+    LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
+  register: fedora_vmtools_check
+  changed_when: false
+  failed_when: fedora_vmtools_check.rc != 0
+
+- name: Report provisioned disk size
+  ansible.builtin.command:
+    cmd: qemu-img info --output=json {{ fedora_qcow_repacked }}
+  register: fedora_qcow_info
+  changed_when: false
+
+- name: Parse virtual size from qcow2
+  ansible.builtin.set_fact:
+    fedora_virtual_bytes: "{{ (fedora_qcow_info.stdout | from_json)['virtual-size'] }}"
+
+- name: Assert provisioned size matches disk_mb
+  ansible.builtin.assert:
+    that:
+      - (fedora_virtual_bytes | int) <= ((disk_mb | int) * 1024 * 1024 + 1048576)
+    fail_msg: >-
+      Repacked virtual size {{ fedora_virtual_bytes }} bytes exceeds disk_mb={{ disk_mb }}.

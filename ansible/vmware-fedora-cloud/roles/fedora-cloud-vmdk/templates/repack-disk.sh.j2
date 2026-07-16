@@ -1,0 +1,172 @@
+#!/bin/bash
+# Repack customized Fedora Cloud Base into a UEFI disk of size DISK_MB.
+# Stock Cloud Base is ~5 GiB virtual with a ~1 GiB /boot — virt-resize alone
+# cannot reach disk_mb≤1024. This copies ESP+/boot+/ onto a new GPT layout.
+#
+# Usage: repack-disk.sh SRC_QCOW DST_QCOW DISK_MB MIN_FREE_MB EFI_MB BOOT_MB
+set -euo pipefail
+
+SRC="${1:?src qcow}"
+DST="${2:?dst qcow}"
+DISK_MB="${3:?disk_mb}"
+MIN_FREE_MB="${4:?min_free_mb}"
+EFI_MB="${5:?efi_mb}"
+BOOT_MB="${6:?boot_mb}"
+
+export LIBGUESTFS_BACKEND="${LIBGUESTFS_BACKEND:-direct}"
+
+WORK="$(cd "$(dirname "$DST")" && pwd)"
+ROOT_TAR="$WORK/rootfs.tar"
+BOOT_TAR="$WORK/bootfs.tar"
+EFI_TAR="$WORK/efifs.tar"
+MEASURE_OUT="$WORK/measure.txt"
+DISK_MB_MAX="{{ disk_mb_max }}"
+
+rm -f "$DST" "$ROOT_TAR" "$BOOT_TAR" "$EFI_TAR" "$MEASURE_OUT"
+
+echo "=== Measuring source filesystems ==="
+virt-df -h -a "$SRC" | tee "$MEASURE_OUT"
+
+USED_ROOT_MB="$(virt-df -a "$SRC" --csv | awk -F, '
+  NR > 1 && $2 == "/" {
+    # virt-df --csv: Filesystem,Type,Size,Used,Available,Use%,Mountpoint (1K-blocks)
+    printf "%d", ($4 / 1024) + 1
+    exit
+  }')"
+
+USED_BOOT_MB="$(virt-df -a "$SRC" --csv | awk -F, '
+  NR > 1 && $2 == "/boot" {
+    printf "%d", ($4 / 1024) + 1
+    exit
+  }')"
+USED_BOOT_MB="${USED_BOOT_MB:-0}"
+
+if [[ -z "${USED_ROOT_MB}" || "${USED_ROOT_MB}" -le 0 ]]; then
+  echo "ERROR: could not measure used space on / from source image" >&2
+  exit 1
+fi
+
+OVERHEAD_MB=$((EFI_MB + BOOT_MB + 4))
+ROOT_MB=$((DISK_MB - OVERHEAD_MB))
+NEED_ROOT_MB=$((USED_ROOT_MB + MIN_FREE_MB))
+
+echo "Measured root used≈${USED_ROOT_MB} MiB, boot used≈${USED_BOOT_MB} MiB"
+echo "Target disk=${DISK_MB} MiB → EFI=${EFI_MB} boot=${BOOT_MB} root=${ROOT_MB} (need≥${NEED_ROOT_MB})"
+
+if (( ROOT_MB < NEED_ROOT_MB )); then
+  SUGGEST=$((NEED_ROOT_MB + OVERHEAD_MB + 32))
+  if (( SUGGEST > DISK_MB_MAX )); then
+    SUGGEST_MSG="measured need ≈${SUGGEST} MiB exceeds disk_mb_max=${DISK_MB_MAX}; raise disk_mb_max only if intentional"
+  else
+    SUGGEST_MSG="re-run with: -e disk_mb=${SUGGEST}"
+  fi
+  cat >&2 <<EOF
+ERROR: Cannot fit customized Cloud Base into disk_mb=${DISK_MB}.
+
+  Root used (approx):     ${USED_ROOT_MB} MiB
+  MTV min free:           ${MIN_FREE_MB} MiB
+  Partition overhead:     ${OVERHEAD_MB} MiB (EFI ${EFI_MB} + /boot ${BOOT_MB} + GPT)
+  Root space available:   ${ROOT_MB} MiB
+  Root space required:    ${NEED_ROOT_MB} MiB
+
+${SUGGEST_MSG}
+EOF
+  exit 1
+fi
+
+if (( USED_BOOT_MB + 32 > BOOT_MB )); then
+  echo "ERROR: /boot used (${USED_BOOT_MB} MiB) does not fit fedora_boot_mb=${BOOT_MB}. Raise fedora_boot_mb." >&2
+  exit 1
+fi
+
+echo "=== Exporting filesystems (virt-tar-out) ==="
+virt-tar-out -a "$SRC" /boot/efi "$EFI_TAR"
+# Export /boot without descending into efi (tar includes efi dir as empty mountpoint often)
+virt-tar-out -a "$SRC" /boot "$BOOT_TAR"
+virt-tar-out -a "$SRC" / "$ROOT_TAR"
+
+echo "=== Creating ${DISK_MB} MiB destination qcow2 ==="
+qemu-img create -f qcow2 "$DST" "${DISK_MB}M"
+
+SECTOR=512
+START=2048
+EFI_SECS=$((EFI_MB * 1024 * 1024 / SECTOR))
+BOOT_SECS=$((BOOT_MB * 1024 * 1024 / SECTOR))
+TOTAL_SECS=$((DISK_MB * 1024 * 1024 / SECTOR))
+LAST_USABLE=$((TOTAL_SECS - 2048 - 1))
+
+EFI_START=$START
+EFI_END=$((EFI_START + EFI_SECS - 1))
+BOOT_START=$((EFI_END + 1))
+BOOT_END=$((BOOT_START + BOOT_SECS - 1))
+ROOT_START=$((BOOT_END + 1))
+ROOT_END=$LAST_USABLE
+
+if (( ROOT_END <= ROOT_START )); then
+  echo "ERROR: partition math failed (ROOT_END=$ROOT_END ROOT_START=$ROOT_START)" >&2
+  exit 1
+fi
+
+echo "GPT layout: EFI ${EFI_START}-${EFI_END}, boot ${BOOT_START}-${BOOT_END}, root ${ROOT_START}-${ROOT_END}"
+
+guestfish -a "$DST" <<EOF
+run
+part-init /dev/sda gpt
+part-add /dev/sda p ${EFI_START} ${EFI_END}
+part-add /dev/sda p ${BOOT_START} ${BOOT_END}
+part-add /dev/sda p ${ROOT_START} ${ROOT_END}
+part-set-gpt-type /dev/sda 1 C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+part-set-gpt-type /dev/sda 2 0FC63DAF-8483-4772-8E79-3D69D8477DE4
+part-set-gpt-type /dev/sda 3 0FC63DAF-8483-4772-8E79-3D69D8477DE4
+mkfs vfat /dev/sda1 label:ESP
+mkfs ext4 /dev/sda2 label:BOOT
+mkfs ext4 /dev/sda3 label:ROOT
+mount /dev/sda3 /
+tar-in ${ROOT_TAR} / 
+mkdir-p /boot
+mount /dev/sda2 /boot
+tar-in ${BOOT_TAR} /boot
+mkdir-p /boot/efi
+mount /dev/sda1 /boot/efi
+tar-in ${EFI_TAR} /boot/efi
+EOF
+
+echo "=== Rewriting fstab and regenerating GRUB config ==="
+guestfish -a "$DST" <<'EOF'
+run
+mount /dev/sda3 /
+mount /dev/sda2 /boot
+mount /dev/sda1 /boot/efi
+write /etc/fstab "LABEL=ROOT / ext4 defaults,x-systemd.device-timeout=0 1 1\nLABEL=BOOT /boot ext4 defaults 1 2\nLABEL=ESP /boot/efi vfat umask=0077,shortname=winnt 0 2\n"
+command "grub2-mkconfig -o /boot/grub2/grub.cfg"
+sh "grub2-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=fedora --recheck --no-nvram || true"
+sh "test -f /boot/efi/EFI/fedora/grubx64.efi || test -f /boot/efi/EFI/BOOT/BOOTX64.EFI"
+touch /.autorelabel
+EOF
+
+echo "=== SELinux relabel pass ==="
+virt-customize -a "$DST" --selinux-relabel || true
+
+echo "=== Post-repack free space ==="
+virt-df -h -a "$DST" | tee "$WORK/measure-after.txt"
+
+AVAIL_ROOT_MB="$(virt-df -a "$DST" --csv | awk -F, '
+  NR > 1 && $2 == "/" {
+    printf "%d", ($5 / 1024)
+    exit
+  }')"
+
+if [[ -n "${AVAIL_ROOT_MB}" ]]; then
+  echo "Available on /=${AVAIL_ROOT_MB} MiB (need≥${MIN_FREE_MB})"
+  if (( AVAIL_ROOT_MB < MIN_FREE_MB )); then
+    echo "ERROR: free space ${AVAIL_ROOT_MB} MiB < fedora_min_free_mb=${MIN_FREE_MB} after repack." >&2
+    echo "Bump disk_mb (≤ disk_mb_max=${DISK_MB_MAX}) and rebuild." >&2
+    exit 1
+  fi
+else
+  echo "WARNING: could not parse available space; continuing" >&2
+fi
+
+rm -f "$ROOT_TAR" "$BOOT_TAR" "$EFI_TAR"
+echo "=== Repack complete: $DST ==="
+qemu-img info "$DST"

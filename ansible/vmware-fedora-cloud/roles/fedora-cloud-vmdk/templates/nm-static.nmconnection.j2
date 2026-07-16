@@ -1,0 +1,17 @@
+[connection]
+id=wired-static
+type=ethernet
+autoconnect=true
+autoconnect-priority=100
+
+[ethernet]
+
+[ipv4]
+method=manual
+addresses={{ fedora_static_ip }}/{{ fedora_static_prefix }}
+{% if fedora_static_gateway | length > 0 %}
+gateway={{ fedora_static_gateway }}
+{% endif %}
+
+[ipv6]
+method=ignore

@@ -1,0 +1,69 @@
+#!/bin/bash
+# Runs inside the guest via virt-customize --run-command
+set -euo pipefail
+
+echo "=== workload-portability guest-setup ({{ fedora_role }}) ==="
+
+mkdir -p /etc/systemd/journald.conf.d
+mkdir -p /etc/cloud/cloud.cfg.d
+mkdir -p /etc/NetworkManager/system-connections
+
+# Move start script to stable path (copy-in keeps source basename)
+if [[ -f /usr/local/bin/todo-start.sh ]]; then
+  mv -f /usr/local/bin/todo-start.sh /usr/local/bin/todo-start
+  chmod 0755 /usr/local/bin/todo-start
+fi
+
+if [[ -f /etc/systemd/system/todo.service ]]; then
+  if [[ "{{ fedora_role }}" == "db" ]]; then
+    mv -f /etc/systemd/system/todo.service /etc/systemd/system/todo-db.service
+  else
+    mv -f /etc/systemd/system/todo.service /etc/systemd/system/todo-web.service
+  fi
+fi
+
+# Load preloaded container image
+IMAGE_TAR=$(ls /var/tmp/wp-artifacts/*.tar 2>/dev/null | head -1 || true)
+if [[ -z "${IMAGE_TAR}" ]]; then
+  echo "ERROR: no container image tar under /var/tmp/wp-artifacts"
+  exit 1
+fi
+podman load -i "${IMAGE_TAR}"
+rm -f "${IMAGE_TAR}"
+
+# Enable core services
+systemctl enable NetworkManager.service || true
+systemctl enable vmtoolsd.service || systemctl enable open-vm-tools.service || true
+systemctl enable qemu-guest-agent.service || true
+
+if [[ "{{ fedora_role }}" == "db" ]]; then
+  systemctl enable todo-db.service
+else
+  systemctl enable todo-web.service
+  systemctl enable sshd.service || true
+  # demo / demo for console + SSH troubleshooting
+  if ! id -u {{ web_ssh_user }} >/dev/null 2>&1; then
+    useradd -m -s /bin/bash {{ web_ssh_user }}
+  fi
+  echo '{{ web_ssh_user }}:{{ web_ssh_password }}' | chpasswd
+  echo '{{ web_ssh_user }} ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/{{ web_ssh_user }}
+  chmod 0440 /etc/sudoers.d/{{ web_ssh_user }}
+fi
+
+# Prefer DHCP via NM; avoid cloud-init blocking boot without a datasource
+if [[ -f /etc/cloud/cloud.cfg ]]; then
+  # Keep cloud-init installed (stock) but do not manage network
+  true
+fi
+
+# Reduce first-boot disk growth for MTV free-space checks
+journalctl --vacuum-size=1M 2>/dev/null || true
+dnf clean all 2>/dev/null || true
+rm -rf /var/cache/dnf/* /var/log/*.log /tmp/* /var/tmp/wp-artifacts 2>/dev/null || true
+
+# Drop documentation / locales that balloon the rootfs (best-effort)
+rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/* 2>/dev/null || true
+
+echo "=== guest-setup complete ==="
+podman images
+df -h

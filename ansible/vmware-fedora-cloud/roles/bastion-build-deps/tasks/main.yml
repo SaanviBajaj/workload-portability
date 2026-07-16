@@ -1,0 +1,34 @@
+---
+- name: Try installing Cloud Base build packages when dnf repos are available
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ bastion_build_packages }}"
+  failed_when: false
+
+- name: Verify required host commands exist
+  ansible.builtin.command:
+    cmd: which {{ item }}
+  loop:
+    - curl
+    - podman
+    - qemu-img
+    - virt-customize
+    - virt-filesystems
+    - virt-df
+  register: host_tools_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail when required host tools are missing
+  ansible.builtin.fail:
+    msg: >-
+      Required command '{{ item.item }}' is missing on the bastion.
+      Install guestfs-tools / libguestfs / qemu-img (and curl, podman), then re-run.
+      On Fedora/RHEL: sudo dnf install -y guestfs-tools libguestfs qemu-img curl
+  loop: "{{ host_tools_check.results }}"
+  when: item.rc != 0
+
+- name: Report Cloud Base build tooling ready
+  ansible.builtin.debug:
+    msg: "Bastion has curl, podman, qemu-img, and virt-customize — ready to build Fedora Cloud VMDKs."

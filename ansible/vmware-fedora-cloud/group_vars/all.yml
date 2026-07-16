@@ -1,0 +1,81 @@
+---
+# VMware vCenter / govc settings
+# Copy credentials.env.example to credentials.env and override sandbox-specific values.
+govc_url: "https://vcsnsx-vc.infra.demo.redhat.com"
+govc_username: "sandbox-XXXXX@demo"
+govc_password: "YourPasswordHere"
+govc_insecure: true
+govc_datastore: "workload_share_XXXXX"
+
+# VMware VM placement
+vm_network: "segment-sandbox-XXXXX"
+vm_folder: "/SDDC-Datacenter/vm/Workloads/sandbox-XXXXX"
+vm_guest_id: "fedora64Guest"
+# Fedora Cloud Base Generic is GPT/UEFI
+vm_firmware: "efi"
+vm_cpus: 2
+vm_memory_mb: 4096
+vm_disk_controller: "scsi"
+
+# Datastore paths for VMDK upload (relative to datastore root)
+datastore_base: "Workload-Portability"
+
+# VM names (same as Alpine/bootc — do not run tracks at the same time)
+db01_vm_name: "todo-db"
+web01_vm_name: "todo-web"
+
+# Container images — preloaded into Podman storage at build time
+govc_image: "docker.io/vmware/govc:latest"
+todo_db_image: "quay.io/rh-ee-sbajaj/todo-db:latest"
+todo_web_image: "quay.io/rh-ee-sbajaj/todo-web:latest"
+
+todo_db_image_tar: "{{ work_base }}/todo-db.tar"
+todo_web_image_tar: "{{ work_base }}/todo-web.tar"
+
+# Official Fedora Cloud Base Generic (supported release)
+fedora_version: "43"
+fedora_cloud_mirror: "https://download.fedoraproject.org/pub/fedora/linux/releases/{{ fedora_version }}/Cloud/x86_64/images"
+# Override if the compose name changes (CHECKSUM file lists the exact filename)
+fedora_cloud_image: ""
+disk_mb: 768
+# Build-time free space; MTV needs ≥100 MB after first boot
+fedora_min_free_mb: 150
+# Absolute ceiling if 768 is too tight — build fails with measurements; bump disk_mb up to this
+disk_mb_max: 1024
+# Stock Cloud Base is 5 GiB + ~1 GiB /boot; the role repacks to a UEFI ESP+/boot+/ layout
+
+qemu_img_image: "docker.io/library/alpine:3.20"
+
+work_base: "{{ ansible_env.HOME | default(lookup('env', 'HOME'), true) | default('/root') }}/fedora-cloud-build"
+govc_env_path: "{{ work_base }}/govc.env"
+db01_build_dir: "{{ work_base }}/todo-db"
+web01_build_dir: "{{ work_base }}/todo-web"
+fedora_cloud_cache_dir: "{{ work_base }}/cloud-images"
+
+web_ssh_user: "demo"
+web_ssh_password: "demo"
+
+db_host: ""
+db_port: 5432
+
+db01_static_ip: ""
+web01_static_ip: ""
+fedora_static_netmask: "255.255.255.0"
+fedora_static_gateway: ""
+fedora_static_prefix: 24
+
+vm_net_adapter: e1000
+
+vm_ip_wait: "90s"
+vm_ip_retries: 30
+vm_ip_retry_delay: 10
+
+bastion_firewall_forward_port: 80
+todo_web_service_port: 80
+
+cleanup_vms: true
+cleanup_datastore_vmdks: true
+cleanup_datastore_folder: true
+cleanup_bastion_firewall: true
+cleanup_local_build: true
+cleanup_remove_masquerade: false
