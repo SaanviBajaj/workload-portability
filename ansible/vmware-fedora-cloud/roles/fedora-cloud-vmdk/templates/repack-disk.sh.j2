@@ -26,23 +26,46 @@ rm -f "$DST" "$ROOT_TAR" "$BOOT_TAR" "$EFI_TAR" "$MEASURE_OUT"
 
 echo "=== Measuring source filesystems ==="
 virt-df -h -a "$SRC" | tee "$MEASURE_OUT"
+virt-df -a "$SRC" --csv | tee "$WORK/measure.csv"
 
-USED_ROOT_MB="$(virt-df -a "$SRC" --csv | awk -F, '
-  NR > 1 && $2 == "/" {
-    # virt-df --csv: Filesystem,Type,Size,Used,Available,Use%,Mountpoint (1K-blocks)
-    printf "%d", ($4 / 1024) + 1
-    exit
-  }')"
+# virt-df --csv columns: Filesystem,Type,Size,Used,Available,Use%,Mountpoint (1K-blocks)
+# Prefer exact '/' mount; for Cloud Base btrfs that is often btrfsvol:.../root or /dev/sdaN with Mountpoint=/
+USED_ROOT_MB="$(awk -F, '
+  NR > 1 && $NF == "/" {
+    used_kb = $4 + 0
+    if (used_kb > best) best = used_kb
+  }
+  END {
+    if (best > 0) printf "%d", int(best / 1024) + 1
+  }
+' "$WORK/measure.csv")"
 
-USED_BOOT_MB="$(virt-df -a "$SRC" --csv | awk -F, '
-  NR > 1 && $2 == "/boot" {
-    printf "%d", ($4 / 1024) + 1
+USED_BOOT_MB="$(awk -F, '
+  NR > 1 && $NF == "/boot" {
+    printf "%d", int(($4 + 0) / 1024) + 1
     exit
-  }')"
+  }
+' "$WORK/measure.csv")"
 USED_BOOT_MB="${USED_BOOT_MB:-0}"
+
+# Fallback: largest non-ESP filesystem by Used (skip ~100M EFI fat)
+if [[ -z "${USED_ROOT_MB}" || "${USED_ROOT_MB}" -le 0 ]]; then
+  USED_ROOT_MB="$(awk -F, '
+    NR > 1 {
+      used_kb = $4 + 0
+      # skip tiny EFI-sized volumes
+      if (used_kb > 200 * 1024 && used_kb > best) best = used_kb
+    }
+    END {
+      if (best > 0) printf "%d", int(best / 1024) + 1
+    }
+  ' "$WORK/measure.csv")"
+fi
 
 if [[ -z "${USED_ROOT_MB}" || "${USED_ROOT_MB}" -le 0 ]]; then
   echo "ERROR: could not measure used space on / from source image" >&2
+  echo "--- virt-df --csv ---" >&2
+  cat "$WORK/measure.csv" >&2 || true
   exit 1
 fi
 
@@ -150,11 +173,12 @@ virt-customize -a "$DST" --selinux-relabel || true
 echo "=== Post-repack free space ==="
 virt-df -h -a "$DST" | tee "$WORK/measure-after.txt"
 
-AVAIL_ROOT_MB="$(virt-df -a "$DST" --csv | awk -F, '
-  NR > 1 && $2 == "/" {
-    printf "%d", ($5 / 1024)
+AVAIL_ROOT_MB="$(awk -F, '
+  NR > 1 && $NF == "/" {
+    printf "%d", int(($5 + 0) / 1024)
     exit
-  }')"
+  }
+' <(virt-df -a "$DST" --csv))"
 
 if [[ -n "${AVAIL_ROOT_MB}" ]]; then
   echo "Available on /=${AVAIL_ROOT_MB} MiB (need≥${MIN_FREE_MB})"

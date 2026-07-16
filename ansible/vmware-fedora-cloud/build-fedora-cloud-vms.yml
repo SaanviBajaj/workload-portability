@@ -1,5 +1,5 @@
 ---
-# Build Fedora Cloud Base VMDKs (≤ disk_mb, default 768) and deploy todo-db + todo-web.
+# Build Fedora Cloud Base VMDKs (default disk_mb=1536) and deploy todo-db + todo-web.
 #
 # Run on the bastion VM:
 #   cd ansible/vmware-fedora-cloud
