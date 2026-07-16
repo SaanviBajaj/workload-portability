@@ -6,13 +6,13 @@ Builds the same **todo-db** / **todo-web** demo as the Alpine track, but with a 
 |---|---|---|
 | Guest OS | Alpine Linux | Fedora 41 |
 | MTV / virt-v2v | **Not supported** | **Supported** |
-| Disk size | ~768 MB | **~1 GiB** |
+| Disk size | ~768 MB | **~1.1 GiB** |
 | Init | OpenRC | systemd-networkd |
 | Networking | ifupdown + DHCP | systemd-networkd |
 
 **Size tricks:** no firmware packages, `kernel-core` + `kernel-modules` only (GPU/media/sound modules stripped), systemd-networkd instead of NetworkManager, docs/locales removed after install.
 
-Fedora + Podman still needs ~560 MiB for the OS install alone, so disks cannot match Alpine’s 768 MB. **1 GiB (1024 MB)** is the practical minimum for this track.
+Fedora + Podman still needs ~560 MiB for the OS install alone, so disks cannot match Alpine’s 768 MB. **1152 MB** is the practical minimum for this track (1024 MB leaves too little free space after first boot for MTV).
 
 **Do not run this track and Alpine/bootc at the same time** — they use the same VM names (`todo-db`, `todo-web`).
 
@@ -50,9 +50,13 @@ sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env
 
 - 2 vCPU, 4 GiB RAM, BIOS, SCSI
 - Guest ID: `fedora64Guest`
-- Disk: **1024 MB** (~1 GiB; needs ≥100 MB free for MTV)
+- Disk: **1152 MB** (~1.1 GiB; build checks ≥200 MB free; MTV needs ≥100 MB after first boot)
 
 If the build fails with “needs more space” during dnf or “only X MB free on `/`”, bump `disk_mb` to `1280` or `1536`.
+
+### MTV free-space gotcha
+
+The playbook measures `/` at **image build time**. After the VM boots, Podman (container overlay under `/var/lib/containers`) and systemd logs consume **~50–70 MB** more. MTV/virt-v2v checks the **running** guest, so a build that reports 144 MB free can still fail migration with 83 MB free. Defaults now use a larger disk and `fedora_min_free_mb: 200` to leave headroom.
 
 ---
 

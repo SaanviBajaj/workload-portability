@@ -375,6 +375,18 @@
         create: false
       failed_when: false
 
+    - name: Ensure journald config drop-in directory exists
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/etc/systemd/journald.conf.d"
+        state: directory
+        mode: "0755"
+
+    - name: Keep journald logs off disk to preserve MTV free space
+      ansible.builtin.template:
+        src: journald-volatile.conf.j2
+        dest: "{{ fedora_mnt }}/etc/systemd/journald.conf.d/99-volatile.conf"
+        mode: "0644"
+
     - name: Strip firmware, docs, locales, and package caches to fit ~768 MB
       ansible.builtin.shell: |
         set -euo pipefail
@@ -412,29 +424,6 @@
         executable: /bin/bash
       changed_when: true
 
-    - name: Measure free space on Fedora root filesystem
-      ansible.builtin.shell: |
-        set -o pipefail
-        df -BM {{ fedora_mnt }} | awk 'NR==2 { gsub(/M$/, "", $4); print $4 }'
-      args:
-        executable: /bin/bash
-      register: fedora_root_free_mb
-      changed_when: false
-
-    - name: Fail when root filesystem lacks space for OpenShift migration
-      ansible.builtin.fail:
-        msg: >-
-          Fedora rootfs for {{ fedora_role }} has only {{ fedora_root_free_mb.stdout | trim }} MB free on '/';
-          need at least {{ fedora_min_free_mb }} MB for OpenShift Virtualization / MTV guest conversion.
-          Increase disk_mb (currently {{ disk_mb }}) in group_vars/all.yml and rebuild.
-      when: (fedora_root_free_mb.stdout | default('0') | trim | int) < (fedora_min_free_mb | int)
-
-    - name: Report Fedora root filesystem free space
-      ansible.builtin.debug:
-        msg: >-
-          Fedora {{ fedora_role }} rootfs has {{ fedora_root_free_mb.stdout | trim }} MB free
-          (minimum {{ fedora_min_free_mb }} MB required for migration).
-
     - name: Configure GRUB defaults for Fedora rootfs
       ansible.builtin.template:
         src: grub-default.j2
@@ -452,6 +441,30 @@
     - name: Sync disk before unmount
       ansible.builtin.command:
         cmd: sync
+
+    - name: Measure free space on Fedora root filesystem after all image changes
+      ansible.builtin.shell: |
+        set -o pipefail
+        df -BM {{ fedora_mnt }} | awk 'NR==2 { gsub(/M$/, "", $4); print $4 }'
+      args:
+        executable: /bin/bash
+      register: fedora_root_free_mb
+      changed_when: false
+
+    - name: Fail when root filesystem lacks space for OpenShift migration
+      ansible.builtin.fail:
+        msg: >-
+          Fedora rootfs for {{ fedora_role }} has only {{ fedora_root_free_mb.stdout | trim }} MB free on '/';
+          need at least {{ fedora_min_free_mb }} MB at build time (MTV requires ≥100 MB on the running VM;
+          first boot typically consumes ~50–70 MB via Podman overlay and logs).
+          Increase disk_mb (currently {{ disk_mb }}) in group_vars/all.yml and rebuild.
+      when: (fedora_root_free_mb.stdout | default('0') | trim | int) < (fedora_min_free_mb | int)
+
+    - name: Report Fedora root filesystem free space
+      ansible.builtin.debug:
+        msg: >-
+          Fedora {{ fedora_role }} rootfs has {{ fedora_root_free_mb.stdout | trim }} MB free at build
+          (minimum {{ fedora_min_free_mb }} MB at build; MTV needs ≥100 MB after first boot).
 
     - name: Convert raw disk to VMware-compatible VMDK
       ansible.builtin.command:

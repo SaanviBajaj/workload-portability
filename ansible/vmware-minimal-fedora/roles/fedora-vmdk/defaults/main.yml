@@ -1,7 +1,7 @@
 ---
 # db or web — set by the playbook
 fedora_role: db
-fedora_min_free_mb: 100
+fedora_min_free_mb: 200
 fedora_vmdk_subformat: streamOptimized
 fedora_build_dir: "{{ work_base }}/fedora-build"
 fedora_hostname: fedora-vm

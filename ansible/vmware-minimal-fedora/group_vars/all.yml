@@ -35,10 +35,12 @@ todo_web_image_tar: "{{ work_base }}/todo-web.tar"
 # Fedora rootfs build (MTV / OpenShift Virtualization supported guest)
 fedora_version: "41"
 fedora_image: "docker.io/library/fedora:{{ fedora_version }}"
-# ~1 GiB: OS install is ~560 MiB; images + MTV free space fit after strip.
-# 768 MiB fails during dnf (not enough headroom for the RPM transaction).
-disk_mb: 1024
-fedora_min_free_mb: 100
+# ~1.1 GiB: OS + preloaded images fit after strip; headroom for first-boot growth.
+# 768 MiB fails during dnf; 1024 MiB leaves <100 MiB free after Podman/journald at boot.
+disk_mb: 1152
+# Build-time minimum on '/'. MTV checks the running VM (needs ≥100 MiB free).
+# First boot (Podman overlay, journald, vmtoolsd) typically consumes ~50–70 MiB.
+fedora_min_free_mb: 200
 
 # Podman image used for qemu-img when the bastion has no dnf repos
 qemu_img_image: "docker.io/library/alpine:3.20"
