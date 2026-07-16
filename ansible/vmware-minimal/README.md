@@ -37,7 +37,7 @@ Normally you'd install an OS, install Docker/Podman, configure networking, uploa
 | | Bootc track (`vmware-bootc`) | **Minimal Alpine (this guide)** | Minimal Fedora (`vmware-minimal-fedora`) |
 |---|------------------------------|--------------------------------|------------------------------------------|
 | OS inside the VM | Full CentOS Stream 9 bootc image | Tiny Alpine Linux | Fedora 41 |
-| Disk size | ~1.7 GB per VM | **~768 MB per VM** | **~768 MB per VM** (slimmed Fedora) |
+| Disk size | ~1.7 GB per VM | **~768 MB per VM** | **~1 GiB per VM** (slimmed Fedora) |
 | MTV / OpenShift Virt | Supported | **Not supported** | **Supported** |
 | Good when | You want a "real" RHEL-like VM | Smallest demo disks | Smallish disks **and** migration |
 

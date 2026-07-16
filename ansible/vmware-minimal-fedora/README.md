@@ -6,11 +6,13 @@ Builds the same **todo-db** / **todo-web** demo as the Alpine track, but with a 
 |---|---|---|
 | Guest OS | Alpine Linux | Fedora 41 |
 | MTV / virt-v2v | **Not supported** | **Supported** |
-| Disk size | ~768 MB | **~768 MB** (slimmed) |
+| Disk size | ~768 MB | **~1 GiB** |
 | Init | OpenRC | systemd-networkd |
 | Networking | ifupdown + DHCP | systemd-networkd |
 
-**Size tricks:** no firmware packages, `kernel-core` + `kernel-modules` only (GPU/media/sound modules stripped), no NetworkManager/netavark, host networking for containers, docs/locales removed after install.
+**Size tricks:** no firmware packages, `kernel-core` + `kernel-modules` only (GPU/media/sound modules stripped), systemd-networkd instead of NetworkManager, docs/locales removed after install.
+
+Fedora + Podman still needs ~560 MiB for the OS install alone, so disks cannot match Alpine’s 768 MB. **1 GiB (1024 MB)** is the practical minimum for this track.
 
 **Do not run this track and Alpine/bootc at the same time** — they use the same VM names (`todo-db`, `todo-web`).
 
@@ -48,9 +50,9 @@ sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env
 
 - 2 vCPU, 4 GiB RAM, BIOS, SCSI
 - Guest ID: `fedora64Guest`
-- Disk: **768 MB** (same target as Alpine; needs ≥100 MB free for MTV)
+- Disk: **1024 MB** (~1 GiB; needs ≥100 MB free for MTV)
 
-If the build fails with “only X MB free on `/`”, bump `disk_mb` in `group_vars/all.yml` (e.g. to `1024`) — the preloaded container image may be larger than expected.
+If the build fails with “needs more space” during dnf or “only X MB free on `/`”, bump `disk_mb` to `1280` or `1536`.
 
 ---
 

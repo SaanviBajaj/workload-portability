@@ -78,17 +78,25 @@
       ansible.builtin.command:
         cmd: mount -t ext4 {{ fedora_loop_part }} {{ fedora_mnt }}
 
+    - name: Ensure host dnf cache dir exists (keep RPM cache off the guest disk)
+      ansible.builtin.file:
+        path: "{{ fedora_build_dir }}/dnf-cache"
+        state: directory
+        mode: "0755"
+
     - name: Bootstrap Fedora base rootfs with dnf installroot
       ansible.builtin.command:
         cmd: >-
           {{ fedora_podman_run_privileged }}
           -v {{ fedora_mnt }}:/mnt
+          -v {{ fedora_build_dir }}/dnf-cache:/var/cache/dnf
           -v /etc/resolv.conf:/etc/resolv.conf:ro
           {{ fedora_image }}
           dnf -y --installroot=/mnt --releasever={{ fedora_version }}
           --use-host-config
           --setopt=install_weak_deps=False
           --setopt=tsflags=nodocs
+          --setopt=cachedir=/var/cache/dnf
           --exclude={{ fedora_dnf_exclude | join(',') }}
           install {{ fedora_install_packages | join(' ') }}
       register: fedora_dnf_install

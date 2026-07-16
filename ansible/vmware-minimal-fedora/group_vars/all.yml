@@ -35,8 +35,9 @@ todo_web_image_tar: "{{ work_base }}/todo-web.tar"
 # Fedora rootfs build (MTV / OpenShift Virtualization supported guest)
 fedora_version: "41"
 fedora_image: "docker.io/library/fedora:{{ fedora_version }}"
-# Same size target as Alpine (~768 MB): slim packages, no firmware, host networking only
-disk_mb: 768
+# ~1 GiB: OS install is ~560 MiB; images + MTV free space fit after strip.
+# 768 MiB fails during dnf (not enough headroom for the RPM transaction).
+disk_mb: 1024
 fedora_min_free_mb: 100
 
 # Podman image used for qemu-img when the bastion has no dnf repos

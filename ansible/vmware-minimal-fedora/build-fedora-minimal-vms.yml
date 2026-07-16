@@ -1,5 +1,5 @@
 ---
-# Build minimal Fedora Linux VMDKs (~768 MB) and deploy todo-db + todo-web VMs to VMware.
+# Build minimal Fedora Linux VMDKs (~1 GiB) and deploy todo-db + todo-web VMs to VMware.
 # Fedora is supported by MTV / OpenShift Virtualization (unlike Alpine).
 #
 # Run on the bastion VM:
