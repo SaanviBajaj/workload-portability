@@ -1,7 +1,11 @@
 ---
-- name: Read os-release from repacked image
+# Explicit -m mounts: libguestfs "inspection" can fail on freshly assembled
+# disks even when files are present; MTV still needs virt-inspector (checked
+# in repack-disk.sh). These asserts read partitions directly.
+
+- name: Read os-release from repacked image root partition
   ansible.builtin.command:
-    cmd: virt-cat -a {{ fedora_qcow_repacked }} /etc/os-release
+    cmd: virt-cat -a {{ fedora_qcow_repacked }} -m /dev/sda3:/ /etc/os-release
   environment:
     PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
@@ -18,7 +22,7 @@
 
 - name: List /boot kernels in repacked image
   ansible.builtin.command:
-    cmd: virt-ls -a {{ fedora_qcow_repacked }} /boot
+    cmd: virt-ls -a {{ fedora_qcow_repacked }} -m /dev/sda2:/ /
   environment:
     PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
@@ -37,9 +41,9 @@
 - name: Check open-vm-tools / vmtoolsd presence
   ansible.builtin.shell: |
     set -o pipefail
-    virt-cat -a {{ fedora_qcow_repacked }} /usr/lib/systemd/system/vmtoolsd.service 2>/dev/null \
-      || virt-ls -a {{ fedora_qcow_repacked }} /usr/bin | grep -E 'vmtoolsd|vmware-toolbox' \
-      || virt-ls -a {{ fedora_qcow_repacked }} /usr/sbin | grep -E 'vmtoolsd'
+    virt-cat -a {{ fedora_qcow_repacked }} -m /dev/sda3:/ /usr/lib/systemd/system/vmtoolsd.service 2>/dev/null \
+      || virt-ls -a {{ fedora_qcow_repacked }} -m /dev/sda3:/ /usr/bin | grep -E 'vmtoolsd|vmware-toolbox' \
+      || virt-ls -a {{ fedora_qcow_repacked }} -m /dev/sda3:/ /usr/sbin | grep -E 'vmtoolsd'
   args:
     executable: /bin/bash
   environment:
@@ -48,6 +52,23 @@
   register: fedora_vmtools_check
   changed_when: false
   failed_when: fedora_vmtools_check.rc != 0
+
+- name: Confirm virt-inspector still sees a Fedora guest
+  ansible.builtin.command:
+    cmd: virt-inspector -a {{ fedora_qcow_repacked }}
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+    LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
+  register: fedora_inspector
+  changed_when: false
+
+- name: Assert virt-inspector output looks like Fedora/Linux
+  ansible.builtin.assert:
+    that:
+      - fedora_inspector.stdout is search('(?i)fedora') or fedora_inspector.stdout is search('(?i)<name>linux</name>')
+    fail_msg: >-
+      virt-inspector did not report a Fedora guest — MTV conversion will fail.
+      Output: {{ fedora_inspector.stdout }}
 
 - name: Report provisioned disk size
   ansible.builtin.command:

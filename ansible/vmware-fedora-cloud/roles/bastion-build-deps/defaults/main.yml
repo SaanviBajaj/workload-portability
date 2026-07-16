@@ -18,4 +18,6 @@ guestfs_wrapper_tools:
   - virt-tar-in
   - virt-cat
   - virt-ls
+  - virt-inspector
+  - virt-filesystems
   - guestfish

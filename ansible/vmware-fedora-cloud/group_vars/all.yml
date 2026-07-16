@@ -37,11 +37,11 @@ fedora_version: "43"
 fedora_cloud_mirror: "https://download.fedoraproject.org/pub/fedora/linux/releases/{{ fedora_version }}/Cloud/x86_64/images"
 # Override if the compose name changes (CHECKSUM file lists the exact filename)
 fedora_cloud_image: ""
-disk_mb: 1536
+disk_mb: 2048
 # Build-time free space; MTV needs ≥100 MB after first boot
 fedora_min_free_mb: 150
-# Cloud Base + podman + preloaded todo image uses ~840+ MiB on /; 768/1024 cannot fit
-disk_mb_max: 2048
+# Btrfs→ext4 expands compressed data; root+var+home tars often need ≥1.5–2 GiB
+disk_mb_max: 3072
 # Stock Cloud Base is 5 GiB + ~1 GiB /boot; the role repacks to a UEFI ESP+/boot+/ layout
 
 qemu_img_image: "docker.io/library/alpine:3.20"
