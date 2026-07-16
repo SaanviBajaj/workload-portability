@@ -1,0 +1,13 @@
+[Unit]
+Description=Todo workload environment detection (VMware hosts vs OpenShift CoreDNS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/todo-workload.env
+ExecStart=/usr/local/bin/todo-env-detect.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

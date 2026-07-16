@@ -1,0 +1,18 @@
+---
+# Shared defaults when running vm-configure playbooks on the guests.
+# Override with -e or a credentials.env-style file.
+
+backend_svc_name: todo-db-svc
+db_name: todo
+db_user: todo
+db_password: todo
+app_port: 8080
+app_dir: /opt/to-do-app
+net_interface: ens192
+net_prefix: 24
+net_gateway: "198.51.100.1"
+net_dns: "198.51.100.1,8.8.8.8"
+todo_db_ip: ""
+todo_web_ip: ""
+db01_static_ip: ""
+web01_static_ip: ""

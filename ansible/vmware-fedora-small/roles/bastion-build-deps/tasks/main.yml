@@ -1,0 +1,102 @@
+---
+- name: Ensure build bin and cache directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ work_base }}"
+    - "{{ guestfs_bin_dir }}"
+    - "{{ work_base }}/guestfs-image"
+
+- name: Try installing build packages when dnf repos are available
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ bastion_build_packages }}"
+  register: bastion_pkg_install
+  failed_when: false
+
+- name: Check for host guestfs / qemu tools
+  ansible.builtin.command:
+    cmd: which {{ item }}
+  loop: "{{ guestfs_wrapper_tools }}"
+  register: host_tools_check
+  changed_when: false
+  failed_when: false
+
+- name: Determine whether any guestfs tools are missing on the host
+  ansible.builtin.set_fact:
+    guestfs_host_missing: "{{ host_tools_check.results | selectattr('rc', 'ne', 0) | list | length > 0 }}"
+
+- name: Stage Containerfile for guestfs tooling image
+  ansible.builtin.copy:
+    src: Containerfile.guestfs
+    dest: "{{ work_base }}/guestfs-image/Containerfile"
+    mode: "0644"
+  when: guestfs_host_missing | bool
+
+- name: Build local guestfs tooling image (host packages unavailable)
+  ansible.builtin.command:
+    cmd: >-
+      podman build
+      -t {{ guestfs_image }}
+      -f {{ work_base }}/guestfs-image/Containerfile
+      {{ work_base }}/guestfs-image
+  register: guestfs_image_build
+  async: 1800
+  poll: 15
+  when: guestfs_host_missing | bool
+
+- name: Fail when guestfs image build failed
+  ansible.builtin.fail:
+    msg: >-
+      Host is missing guestfs/qemu tools, and building {{ guestfs_image }} via Podman also failed.
+      Try: sudo dnf install -y qemu-img guestfs-tools libguestfs git
+  when:
+    - guestfs_host_missing | bool
+    - guestfs_image_build.rc is defined
+    - guestfs_image_build.rc != 0
+
+- name: Install guestfs tool wrappers (host binary preferred, else Podman)
+  ansible.builtin.template:
+    src: guestfs-tool-wrapper.j2
+    dest: "{{ guestfs_bin_dir }}/{{ item }}"
+    mode: "0755"
+  loop: "{{ guestfs_wrapper_tools }}"
+
+- name: Verify curl, git, and podman exist on host
+  ansible.builtin.command:
+    cmd: which {{ item }}
+  loop:
+    - curl
+    - git
+    - podman
+  register: core_tools_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail when curl, git, or podman are missing
+  ansible.builtin.fail:
+    msg: "Required command '{{ item.item }}' is missing on the bastion."
+  loop: "{{ core_tools_check.results }}"
+  when: item.rc != 0
+
+- name: Verify wrapped guestfs tools resolve
+  ansible.builtin.command:
+    cmd: "{{ guestfs_bin_dir }}/{{ item }} --version"
+  loop:
+    - qemu-img
+    - virt-customize
+    - virt-resize
+  environment:
+    PATH: "{{ guestfs_bin_dir }}:{{ ansible_env.PATH }}"
+    LIBGUESTFS_BACKEND: direct
+  register: wrapped_tools_check
+  changed_when: false
+
+- name: Report build tooling ready
+  ansible.builtin.debug:
+    msg: >-
+      Build tools ready via {{ 'host packages' if not (guestfs_host_missing | bool) else 'Podman image ' + guestfs_image }}.
+      Wrappers in {{ guestfs_bin_dir }}.

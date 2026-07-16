@@ -1,0 +1,7 @@
+---
+bastion_firewall_forward_port: 80
+todo_web_service_port: 8080
+todo_web_ip: ""
+govc_cmd: >-
+  podman run --rm --env-file {{ govc_env_path }}
+  {{ govc_image }} /govc

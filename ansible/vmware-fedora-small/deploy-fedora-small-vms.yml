@@ -1,0 +1,149 @@
+---
+# Deploy the Fedora-small golden VMDK as todo-db, clone todo-web, power on, discover IPs.
+#
+# Prerequisites: golden/fedora-small.yml has produced
+#   ~/fedora-small-build/golden/todo_small.vmdk
+#
+#   sudo ansible-playbook deploy-fedora-small-vms.yml -e @credentials.env
+#
+# Then on each guest (console/SSH as fedora / openshift):
+#   cd /home/fedora/vm-configure
+#   sudo ansible-playbook todo-db.yml -e todo_db_ip=<db-ip> -e db01_static_ip=<db-ip> ...
+#   sudo ansible-playbook todo-web.yml -e todo_db_ip=<db-ip> -e web01_static_ip=<web-ip> ...
+
+- name: Deploy Fedora-small todo-db and todo-web from golden VMDK
+  hosts: bastion
+  gather_facts: true
+  become: true
+
+  vars:
+    govc_cmd: >-
+      podman run --rm --env-file {{ govc_env_path }}
+      {{ govc_image }} /govc
+
+  tasks:
+    - name: Ensure work base exists
+      ansible.builtin.file:
+        path: "{{ work_base }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render govc environment file
+      ansible.builtin.template:
+        src: govc.env.j2
+        dest: "{{ govc_env_path }}"
+        mode: "0600"
+      become: false
+
+    - name: Assert golden VMDK exists
+      ansible.builtin.stat:
+        path: "{{ golden_dir }}/todo_small.vmdk"
+      register: golden_vmdk
+
+    - name: Fail when golden VMDK is missing
+      ansible.builtin.fail:
+        msg: >-
+          Missing {{ golden_dir }}/todo_small.vmdk.
+          Run: sudo ansible-playbook golden/fedora-small.yml -e @credentials.env
+      when: not golden_vmdk.stat.exists
+
+    - name: Deploy todo-db from golden VMDK
+      ansible.builtin.include_role:
+        name: vmware-vm
+      vars:
+        vm_name: "{{ db01_vm_name }}"
+        vm_build_dir: "{{ golden_dir }}"
+        vm_datastore_folder: todo-db
+        vm_vmdk_filename: todo-db-disk1.vmdk
+        vm_wait_for_ip: "{{ db01_static_ip | length == 0 }}"
+        vm_static_ip: "{{ db01_static_ip }}"
+        vm_ip_fact_name: discovered_todo_db_ip
+        vm_power_on: true
+      tags: [db01]
+
+    - name: Set todo_db_ip fact
+      ansible.builtin.set_fact:
+        todo_db_ip: "{{ db01_static_ip if db01_static_ip | length > 0 else discovered_todo_db_ip }}"
+      tags: [db01, web01]
+
+    - name: Check whether todo-web already exists
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} find {{ vm_folder }} -type m -name {{ web01_vm_name }}"
+      register: web_find
+      failed_when: false
+      changed_when: false
+      tags: [web01]
+
+    - name: Clone todo-db to todo-web
+      ansible.builtin.command:
+        cmd: >-
+          {{ govc_cmd }} vm.clone
+          -vm {{ db01_vm_name }}
+          -on=false
+          -folder "{{ vm_folder }}"
+          {{ web01_vm_name }}
+      when: web_find.stdout | trim | length == 0
+      tags: [web01]
+
+    - name: Power on todo-web
+      ansible.builtin.command:
+        cmd: "{{ govc_cmd }} vm.power -on {{ web01_vm_name }}"
+      when: web_find.stdout | trim | length == 0
+      tags: [web01]
+
+    - name: Discover or publish todo-web IP
+      when: web01_static_ip | length == 0
+      block:
+        - name: Wait for todo-web IP via VMware Tools
+          ansible.builtin.command:
+            cmd: "{{ govc_cmd }} vm.ip -wait={{ vm_ip_wait }} {{ web01_vm_name }}"
+          register: web_ip_raw
+          retries: "{{ vm_ip_retries }}"
+          delay: "{{ vm_ip_retry_delay }}"
+          until: web_ip_raw.stdout | trim | length > 0
+          changed_when: false
+
+        - name: Set discovered todo_web_ip
+          ansible.builtin.set_fact:
+            todo_web_ip: "{{ web_ip_raw.stdout | trim }}"
+      tags: [web01, bastion-firewall]
+
+    - name: Set todo_web_ip from static config
+      ansible.builtin.set_fact:
+        todo_web_ip: "{{ web01_static_ip }}"
+      when: web01_static_ip | length > 0
+      tags: [web01, bastion-firewall]
+
+    - name: Print configure instructions
+      ansible.builtin.debug:
+        msg: |
+          VMs are up.
+            todo-db  IP: {{ todo_db_ip }}
+            todo-web IP: {{ todo_web_ip }}
+
+          On todo-db console/SSH (fedora / {{ guest_password }}):
+            cd /home/fedora/vm-configure
+            sudo ansible-playbook todo-db.yml \
+              -e todo_db_ip={{ todo_db_ip }} \
+              -e db01_static_ip={{ todo_db_ip }} \
+              -e net_gateway={{ net_gateway }} \
+              -e net_dns={{ net_dns }}
+
+          On todo-web:
+            cd /home/fedora/vm-configure
+            sudo ansible-playbook todo-web.yml \
+              -e todo_db_ip={{ todo_db_ip }} \
+              -e web01_static_ip={{ todo_web_ip }} \
+              -e net_gateway={{ net_gateway }} \
+              -e net_dns={{ net_dns }}
+
+          Then: curl http://{{ todo_web_ip }}:{{ app_port }}/health
+      tags: [db01, web01]
+
+- name: Configure bastion firewall HTTP forward to todo-web
+  hosts: bastion
+  gather_facts: false
+  become: true
+  roles:
+    - role: bastion-firewall
+      tags: [bastion-firewall]

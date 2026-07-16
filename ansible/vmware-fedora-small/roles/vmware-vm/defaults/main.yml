@@ -1,0 +1,15 @@
+---
+vm_wait_for_ip: false
+vm_power_on: true
+vm_ip_fact_name: ""
+vm_static_ip: ""
+vm_net_adapter: e1000
+
+vm_vmdk_upload: "{{ datastore_base }}/{{ vm_vmdk_filename }}"
+vm_vmdk_final: "{{ datastore_base }}/{{ vm_datastore_folder }}/{{ vm_vmdk_filename }}"
+vm_vmdk_import_dir: "{{ datastore_base }}/{{ vm_datastore_folder }}"
+vm_vmdk_local: "{{ vm_build_dir }}/todo_small.vmdk"
+
+govc_cmd: >-
+  podman run --rm --env-file {{ govc_env_path }}
+  {{ govc_image }} /govc

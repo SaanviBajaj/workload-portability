@@ -1,0 +1,236 @@
+---
+# Configure native Node.js todo-web VM.
+# Run ON the web VM:
+#
+#   sudo ansible-playbook todo-web.yml \
+#     -e todo_db_ip=192.168.108.50 \
+#     -e web01_static_ip=192.168.108.51 \
+#     -e net_gateway=192.168.108.1
+
+- name: Configure the Node.js todo-web VM
+  hosts: local
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    target_hostname: todo-web
+    app_src_on_guest: /home/fedora/to-do-app
+    apply_static_network: "{{ (web01_static_ip | default(todo_web_ip, true) | default('') | length) > 0 }}"
+    net_static_ip: "{{ (web01_static_ip | default(todo_web_ip, true)) }}/{{ net_prefix }}"
+    run_health_check: true
+    health_check_retries: 15
+
+  tasks:
+    - name: Normalize todo_db_ip from static overrides
+      ansible.builtin.set_fact:
+        todo_db_ip: "{{ todo_db_ip if todo_db_ip | length > 0 else (db01_static_ip | default('')) }}"
+
+    - name: Require todo_db_ip for VMware service emulation
+      ansible.builtin.fail:
+        msg: >-
+          todo_db_ip is required so env-detect can map {{ backend_svc_name }}
+          on VMware. Pass -e todo_db_ip=<db-ip>.
+      when: todo_db_ip | length == 0
+
+    - name: Find NetworkManager connection for the NIC
+      ansible.builtin.command: nmcli -g GENERAL.CONNECTION device show {{ net_interface }}
+      register: nm_con
+      changed_when: false
+      failed_when: false
+      tags: [network]
+      when: apply_static_network | bool
+
+    - name: Pin static IPv4 on todo-web
+      ansible.builtin.command: >-
+        nmcli connection modify "{{ nm_con.stdout }}"
+        ipv4.method manual
+        ipv4.addresses {{ net_static_ip }}
+        ipv4.gateway {{ net_gateway }}
+        ipv4.dns "{{ net_dns }}"
+        ipv6.method ignore
+      when:
+        - apply_static_network | bool
+        - nm_con.rc == 0
+        - nm_con.stdout | length > 0
+      register: nm_mod
+      tags: [network]
+
+    - name: Activate static IPv4 (may drop SSH — use console)
+      ansible.builtin.command: nmcli connection up "{{ nm_con.stdout }}"
+      when:
+        - apply_static_network | bool
+        - nm_mod is changed
+      tags: [network]
+
+    - name: Set persistent hostname
+      ansible.builtin.hostname:
+        name: "{{ target_hostname }}"
+      tags: [hostname]
+
+    - name: Install Node.js, npm, and rsync
+      ansible.builtin.package:
+        name:
+          - nodejs
+          - npm
+          - rsync
+        state: present
+
+    - name: Assert golden baked app source exists
+      ansible.builtin.stat:
+        path: "{{ app_src_on_guest }}/server.js"
+      register: guest_app
+
+    - name: Fail when /home/fedora/to-do-app is missing
+      ansible.builtin.fail:
+        msg: >-
+          {{ app_src_on_guest }} not found. Rebuild the golden image so
+          to-do-app is copied into the guest.
+      when: not guest_app.stat.exists
+
+    - name: Sync app into {{ app_dir }}
+      ansible.builtin.command:
+        cmd: rsync -a --delete "{{ app_src_on_guest }}/" "{{ app_dir }}/"
+      changed_when: true
+
+    - name: Ensure app directory ownership
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install production npm dependencies
+      ansible.builtin.command:
+        cmd: npm install --omit=dev
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    - name: Install environment detection script
+      ansible.builtin.copy:
+        src: todo-env-detect.sh
+        dest: /usr/local/bin/todo-env-detect.sh
+        mode: "0755"
+      notify: Run environment detection
+
+    - name: Install environment detection unit
+      ansible.builtin.copy:
+        src: todo-env-detect.service
+        dest: /etc/systemd/system/todo-env-detect.service
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Run environment detection
+
+    - name: Write todo-workload env file for env-detect
+      ansible.builtin.copy:
+        dest: /etc/todo-workload.env
+        mode: "0644"
+        content: |
+          TODO_DB_SVC_NAME={{ backend_svc_name }}
+          TODO_DB_IP={{ todo_db_ip }}
+      notify: Run environment detection
+
+    - name: Enable todo-env-detect at boot
+      ansible.builtin.systemd:
+        name: todo-env-detect
+        enabled: true
+        daemon_reload: true
+
+    - name: Run env-detect now (VMware hosts mapping)
+      ansible.builtin.command: /usr/local/bin/todo-env-detect.sh
+      environment:
+        TODO_DB_SVC_NAME: "{{ backend_svc_name }}"
+        TODO_DB_IP: "{{ todo_db_ip }}"
+      changed_when: true
+
+    - name: Install todo-web systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/todo-web.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Todo web application
+          After=network-online.target todo-env-detect.service
+          Wants=network-online.target todo-env-detect.service
+
+          [Service]
+          Type=simple
+          WorkingDirectory={{ app_dir }}
+          Environment=NODE_ENV=production
+          Environment=DB_HOST={{ backend_svc_name }}
+          Environment=DB_PORT=5432
+          Environment=DB_USER={{ db_user }}
+          Environment=DB_PASSWORD={{ db_password }}
+          Environment=DB_NAME={{ db_name }}
+          Environment=PORT={{ app_port }}
+          ExecStart=/usr/bin/node {{ app_dir }}/server.js
+          Restart=on-failure
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload systemd
+        - Restart todo-web
+
+    - name: Enable and start todo-web
+      ansible.builtin.systemd:
+        name: todo-web
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Check whether firewalld is present
+      ansible.builtin.command: systemctl list-unit-files firewalld.service
+      register: fw_unit
+      changed_when: false
+      failed_when: false
+
+    - name: Disable and mask host firewall (demo)
+      ansible.builtin.systemd:
+        name: firewalld
+        state: stopped
+        enabled: false
+        masked: true
+      when: "'firewalld.service' in fw_unit.stdout"
+
+    - name: Reclaim dnf/npm caches
+      ansible.builtin.shell: |
+        dnf clean all || true
+        npm cache clean --force || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+      tags: [reclaim]
+
+    - name: Wait for /health
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ app_port }}/health"
+        return_content: true
+      register: health
+      until: health.status | default(0) == 200
+      retries: "{{ health_check_retries }}"
+      delay: 2
+      when: run_health_check | bool
+
+    - name: Report health check
+      ansible.builtin.debug:
+        msg: "{{ health.content | default('health check skipped') }}"
+      when: run_health_check | bool
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart todo-web
+      ansible.builtin.systemd:
+        name: todo-web
+        state: restarted
+
+    - name: Run environment detection
+      ansible.builtin.systemd:
+        name: todo-env-detect
+        state: restarted

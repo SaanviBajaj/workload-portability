@@ -1,0 +1,99 @@
+---
+# Tear down Fedora-small VMs / datastore VMDKs / local golden build.
+#
+#   sudo ansible-playbook cleanup-fedora-small-vms.yml -e @credentials.env
+#
+# Tags: vms, vmdks, bastion-firewall, local
+
+- name: Cleanup Fedora-small VMware resources and local build
+  hosts: bastion
+  gather_facts: true
+  become: true
+
+  vars:
+    govc_cmd: >-
+      podman run --rm --env-file {{ govc_env_path }}
+      {{ govc_image }} /govc
+    cleanup_vms: true
+    cleanup_datastore_vmdks: true
+    cleanup_bastion_firewall: true
+    cleanup_local_build: true
+
+  tasks:
+    - name: Render govc environment file
+      ansible.builtin.template:
+        src: govc.env.j2
+        dest: "{{ govc_env_path }}"
+        mode: "0600"
+      become: false
+      when: cleanup_vms | bool or cleanup_datastore_vmdks | bool
+
+    - name: Power off and destroy VMs
+      when: cleanup_vms | bool
+      tags: [vms]
+      block:
+        - name: Power off VM
+          ansible.builtin.command:
+            cmd: "{{ govc_cmd }} vm.power -off -force {{ item }}"
+          loop:
+            - "{{ web01_vm_name }}"
+            - "{{ db01_vm_name }}"
+            - "{{ golden_vm_name }}"
+          failed_when: false
+          changed_when: true
+
+        - name: Destroy VM
+          ansible.builtin.command:
+            cmd: "{{ govc_cmd }} vm.destroy {{ item }}"
+          loop:
+            - "{{ web01_vm_name }}"
+            - "{{ db01_vm_name }}"
+            - "{{ golden_vm_name }}"
+          failed_when: false
+          changed_when: true
+
+    - name: Remove datastore VMDK folders
+      when: cleanup_datastore_vmdks | bool
+      tags: [vmdks]
+      block:
+        - name: Remove datastore paths
+          ansible.builtin.command:
+            cmd: "{{ govc_cmd }} datastore.rm {{ item }}"
+          loop:
+            - "{{ datastore_base }}/todo-db"
+            - "{{ datastore_base }}/todo-web"
+            - "{{ datastore_base }}/todo-golden"
+            - "{{ datastore_base }}/todo-db-disk1.vmdk"
+            - "{{ datastore_base }}/todo-web-disk1.vmdk"
+            - "{{ datastore_base }}/todo_small.vmdk"
+          failed_when: false
+          changed_when: true
+
+    - name: Clear bastion HTTP forward for todo port
+      when: cleanup_bastion_firewall | bool
+      tags: [bastion-firewall]
+      block:
+        - name: List permanent forward ports
+          ansible.builtin.command:
+            cmd: firewall-cmd --permanent --list-forward-ports
+          register: fw_forwards
+          changed_when: false
+          failed_when: false
+
+        - name: Remove matching forward ports
+          ansible.builtin.command:
+            cmd: firewall-cmd --permanent --remove-forward-port={{ item }}
+          loop: "{{ fw_forwards.stdout_lines | default([]) | select('search', 'port=' ~ (bastion_firewall_forward_port | string) ~ ':') | list }}"
+          when: fw_forwards.stdout_lines is defined
+
+        - name: Reload firewalld
+          ansible.builtin.command:
+            cmd: firewall-cmd --reload
+          failed_when: false
+
+    - name: Remove local fedora-small build directory
+      ansible.builtin.file:
+        path: "{{ work_base }}"
+        state: absent
+      when: cleanup_local_build | bool
+      tags: [local]

@@ -1,0 +1,403 @@
+---
+# Build a ~1.7 GiB Fedora Cloud Base golden (grantomation fedora-small method).
+# Offline on the bastion — the image is never booted.
+#
+#   cd ansible/vmware-fedora-small
+#   sudo ansible-playbook golden/fedora-small.yml -e @credentials.env
+#
+# Outputs:
+#   ~/fedora-small-build/golden/todo_small.qcow2
+#   ~/fedora-small-build/golden/todo_small.vmdk
+#
+# Shrink floor (measured by grantomation; do not lower without re-probing):
+#   btrfs_size=1600M  target_size=1740M
+
+- name: Build Fedora-small golden VMDK for todo VMs
+  hosts: bastion
+  gather_facts: true
+  become: true
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+    LIBGUESTFS_BACKEND: direct
+
+  vars:
+    working_image: "{{ golden_dir }}/todo_small_work.qcow2"
+    small_image: "{{ golden_dir }}/todo_small.qcow2"
+    output_vmdk: "{{ golden_dir }}/todo_small.vmdk"
+    fedora_cloud_image_default: "Fedora-Cloud-Base-Generic-{{ fedora_version }}-1.6.x86_64.qcow2"
+
+  tasks:
+    - name: Ensure golden and cache directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ work_base }}"
+        - "{{ golden_dir }}"
+        - "{{ fedora_cloud_cache_dir }}"
+
+    - name: Install build dependencies / guestfs wrappers
+      ansible.builtin.include_role:
+        name: bastion-build-deps
+
+    # ----- App source (cloned into the golden) -----
+    - name: Use provided local app checkout
+      ansible.builtin.set_fact:
+        app_copy_src: "{{ app_src }}"
+      when: app_src | length > 0
+
+    - name: Clone to-do-app when no local app_src
+      when: app_src | length == 0
+      block:
+        - name: Remove stale app cache
+          ansible.builtin.file:
+            path: "{{ app_cache_dir }}"
+            state: absent
+
+        - name: Clone SaanviBajaj/to-do-app
+          ansible.builtin.git:
+            repo: "{{ todo_app_repo }}"
+            dest: "{{ app_cache_dir }}"
+            version: "{{ todo_app_ref }}"
+            depth: 1
+
+        - name: Set app copy source from clone
+          ansible.builtin.set_fact:
+            app_copy_src: "{{ app_cache_dir }}"
+
+    - name: Assert app source exists
+      ansible.builtin.stat:
+        path: "{{ app_copy_src }}/server.js"
+      register: app_server_stat
+
+    - name: Fail when to-do-app source is incomplete
+      ansible.builtin.fail:
+        msg: >-
+          Expected server.js under {{ app_copy_src }}.
+          Set app_src to a local checkout or fix todo_app_repo/todo_app_ref.
+      when: not app_server_stat.stat.exists
+
+    - name: Ensure staged app directory exists
+      ansible.builtin.file:
+        path: "{{ work_base }}/stage-to-do-app"
+        state: directory
+        mode: "0755"
+
+    - name: Sync app into stage-to-do-app for virt-customize
+      ansible.builtin.command:
+        cmd: rsync -a --delete "{{ app_copy_src }}/" "{{ work_base }}/stage-to-do-app/"
+      changed_when: true
+
+    - name: Ensure stage-vm-configure directory exists
+      ansible.builtin.file:
+        path: "{{ work_base }}/stage-vm-configure"
+        state: directory
+        mode: "0755"
+
+    - name: Stage vm-configure playbooks into the golden
+      ansible.builtin.command:
+        cmd: >-
+          rsync -a --delete
+          "{{ playbook_dir }}/../vm-configure/"
+          "{{ work_base }}/stage-vm-configure/"
+      changed_when: true
+
+    # ----- Download Fedora Cloud Base -----
+    - name: Set Cloud Base image filename
+      ansible.builtin.set_fact:
+        fedora_cloud_image_file: "{{ fedora_cloud_image if fedora_cloud_image | length > 0 else fedora_cloud_image_default }}"
+
+    - name: Download Fedora Cloud CHECKSUM file
+      ansible.builtin.get_url:
+        url: "{{ fedora_cloud_mirror }}/Fedora-Cloud-{{ fedora_version }}-1.6-x86_64-CHECKSUM"
+        dest: "{{ fedora_cloud_cache_dir }}/Fedora-Cloud-{{ fedora_version }}-CHECKSUM"
+        mode: "0644"
+      register: fedora_checksum_download
+      failed_when: false
+
+    - name: Check whether CHECKSUM file exists
+      ansible.builtin.stat:
+        path: "{{ fedora_cloud_cache_dir }}/Fedora-Cloud-{{ fedora_version }}-CHECKSUM"
+      register: fedora_checksum_stat
+
+    - name: Discover Cloud Base Generic filename from CHECKSUM
+      ansible.builtin.shell: |
+        set -o pipefail
+        grep -E 'Fedora-Cloud-Base-Generic-{{ fedora_version }}-.*\.x86_64\.qcow2$' \
+          "{{ fedora_cloud_cache_dir }}/Fedora-Cloud-{{ fedora_version }}-CHECKSUM" \
+          | head -1 \
+          | awk '{print $NF}' \
+          | sed 's#^\./##'
+      args:
+        executable: /bin/bash
+      register: fedora_checksum_name
+      changed_when: false
+      failed_when: false
+      when: fedora_checksum_stat.stat.exists
+
+    - name: Override Cloud Base filename from CHECKSUM
+      ansible.builtin.set_fact:
+        fedora_cloud_image_file: "{{ fedora_checksum_name.stdout | trim }}"
+      when:
+        - fedora_checksum_name.stdout is defined
+        - fedora_checksum_name.stdout | trim | length > 0
+
+    - name: Set Cloud Base cache path
+      ansible.builtin.set_fact:
+        fedora_cloud_qcow_cache: "{{ fedora_cloud_cache_dir }}/{{ fedora_cloud_image_file }}"
+
+    - name: Check for cached Cloud Base qcow2
+      ansible.builtin.stat:
+        path: "{{ fedora_cloud_qcow_cache }}"
+      register: fedora_cloud_cache_stat
+
+    - name: Download Fedora Cloud Base Generic qcow2
+      ansible.builtin.get_url:
+        url: "{{ fedora_cloud_mirror }}/{{ fedora_cloud_image_file }}"
+        dest: "{{ fedora_cloud_qcow_cache }}"
+        mode: "0644"
+      when: not fedora_cloud_cache_stat.stat.exists
+
+    - name: Remove previous working / output images
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ working_image }}"
+        - "{{ small_image }}"
+        - "{{ output_vmdk }}"
+
+    - name: Copy Cloud Base to working image
+      ansible.builtin.copy:
+        src: "{{ fedora_cloud_qcow_cache }}"
+        dest: "{{ working_image }}"
+        remote_src: true
+        force: true
+        mode: "0644"
+
+    # ----- Customize offline -----
+    - name: Customize golden image (packages, passwords, copy to-do-app)
+      ansible.builtin.command:
+        argv:
+          - virt-customize
+          - --format
+          - qcow2
+          - -a
+          - "{{ working_image }}"
+          - --install
+          - "{{ guest_packages | join(',') }}"
+          - --run-command
+          - systemctl enable qemu-guest-agent
+          - --run-command
+          - systemctl enable vmtoolsd || systemctl enable open-vm-tools || true
+          - --root-password
+          - "password:{{ guest_password }}"
+          - --run-command
+          - id -u fedora >/dev/null 2>&1 || useradd -m fedora
+          - --password
+          - "fedora:password:{{ guest_password }}"
+          - --run-command
+          - "echo 'fedora ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/fedora"
+          - --run-command
+          - "chmod 0440 /etc/sudoers.d/fedora"
+          - --mkdir
+          - /home/fedora
+          - --copy-in
+          - "{{ work_base }}/stage-to-do-app:/home/fedora/"
+          - --copy-in
+          - "{{ work_base }}/stage-vm-configure:/home/fedora/"
+          - --run-command
+          - "mv /home/fedora/stage-to-do-app /home/fedora/to-do-app && mv /home/fedora/stage-vm-configure /home/fedora/vm-configure && chown -R 1000:1000 /home/fedora/to-do-app /home/fedora/vm-configure"
+          - --run-command
+          - dnf clean all
+      environment:
+        PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+        LIBGUESTFS_BACKEND: direct
+      async: 3600
+      poll: 15
+      changed_when: true
+
+    - name: Seal the image (virt-sysprep)
+      ansible.builtin.command:
+        argv:
+          - virt-sysprep
+          - -a
+          - "{{ working_image }}"
+      environment:
+        PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+        LIBGUESTFS_BACKEND: direct
+      async: 1800
+      poll: 15
+      changed_when: true
+
+    - name: Sparsify the working image in place
+      ansible.builtin.command:
+        argv:
+          - virt-sparsify
+          - --in-place
+          - "{{ working_image }}"
+      environment:
+        PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+        LIBGUESTFS_BACKEND: direct
+      async: 3600
+      poll: 15
+      changed_when: true
+
+    # ----- Btrfs-aware shrink (grantomation dance) -----
+    - name: Show disk layout before shrink
+      ansible.builtin.command:
+        argv:
+          - virt-filesystems
+          - --long
+          - --parts
+          - --filesystems
+          - -h
+          - -a
+          - "{{ working_image }}"
+      register: fs_layout
+      changed_when: false
+
+    - name: Print filesystem layout
+      ansible.builtin.debug:
+        var: fs_layout.stdout_lines
+
+    - name: Identify the largest (root) partition
+      ansible.builtin.shell: |
+        set -o pipefail
+        virt-filesystems -a "{{ working_image }}" --partitions --long --csv \
+          | tail -n +2 | sort -t, -k4 -n | tail -1 | cut -d, -f1
+      args:
+        executable: /bin/bash
+      register: root_part
+      changed_when: false
+
+    - name: Report shrink plan
+      ansible.builtin.debug:
+        msg: >-
+          Pre-shrinking btrfs on {{ root_part.stdout }} to {{ btrfs_size }},
+          then resizing into a {{ target_size }} disk.
+
+    - name: Pre-shrink the btrfs filesystem
+      ansible.builtin.command:
+        argv:
+          - guestfish
+          - --rw
+          - -a
+          - "{{ working_image }}"
+          - run
+          - ":"
+          - mount
+          - "{{ root_part.stdout }}"
+          - /
+          - ":"
+          - btrfs-filesystem-resize
+          - /
+          - "size:{{ btrfs_size }}"
+          - ":"
+          - umount-all
+      environment:
+        PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+        LIBGUESTFS_BACKEND: direct
+      async: 1800
+      poll: 15
+      changed_when: true
+
+    - name: Create the small target disk ({{ target_size }} geometry)
+      ansible.builtin.command:
+        argv:
+          - qemu-img
+          - create
+          - -f
+          - qcow2
+          - "{{ small_image }}"
+          - "{{ target_size }}"
+      changed_when: true
+
+    - name: Shrink-copy the golden into the small disk
+      ansible.builtin.command:
+        argv:
+          - virt-resize
+          - --shrink
+          - "{{ root_part.stdout }}"
+          - "{{ working_image }}"
+          - "{{ small_image }}"
+      environment:
+        PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+        LIBGUESTFS_BACKEND: direct
+      async: 3600
+      poll: 15
+      changed_when: true
+
+    - name: Sparsify the small image
+      ansible.builtin.command:
+        argv:
+          - virt-sparsify
+          - --in-place
+          - "{{ small_image }}"
+      environment:
+        PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+        LIBGUESTFS_BACKEND: direct
+      async: 3600
+      poll: 15
+      changed_when: true
+
+    - name: Convert shrunk qcow2 to VMDK ({{ vmdk_subformat }})
+      ansible.builtin.command:
+        argv:
+          - qemu-img
+          - convert
+          - -f
+          - qcow2
+          - -O
+          - vmdk
+          - -o
+          - "subformat={{ vmdk_subformat }}"
+          - "{{ small_image }}"
+          - "{{ output_vmdk }}"
+      changed_when: true
+
+    - name: Remove full-size working image
+      ansible.builtin.file:
+        path: "{{ working_image }}"
+        state: absent
+
+    - name: Read shrunk qcow virtual size
+      ansible.builtin.command:
+        argv:
+          - qemu-img
+          - info
+          - "{{ small_image }}"
+      register: small_info
+      changed_when: false
+
+    - name: Show VMDK file size
+      ansible.builtin.command:
+        argv:
+          - ls
+          - -lh
+          - "{{ output_vmdk }}"
+      register: vmdk_size
+      changed_when: false
+
+    - name: Assert virtual size is near target_size (not 5 GiB)
+      ansible.builtin.command:
+        cmd: qemu-img info --output=json {{ small_image }}
+      register: small_json
+      changed_when: false
+
+    - name: Fail if virtual size exceeds 2 GiB
+      ansible.builtin.assert:
+        that:
+          - (small_json.stdout | from_json)['virtual-size'] | int <= (2 * 1024 * 1024 * 1024)
+        fail_msg: >-
+          Shrunk virtual size is still large:
+          {{ (small_json.stdout | from_json)['virtual-size'] }} bytes.
+          Expected ~{{ target_size }}.
+
+    - name: Done
+      ansible.builtin.debug:
+        msg: >-
+          Golden ready. qcow: {{ small_info.stdout_lines }} |
+          VMDK: {{ vmdk_size.stdout }}.
+          Next: sudo ansible-playbook deploy-fedora-small-vms.yml -e @credentials.env

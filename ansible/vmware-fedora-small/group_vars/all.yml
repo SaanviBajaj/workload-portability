@@ -1,0 +1,80 @@
+---
+# VMware vCenter / govc settings
+# Copy credentials.env.example to credentials.env and override sandbox-specific values.
+govc_url: "https://vcsnsx-vc.infra.demo.redhat.com"
+govc_username: "sandbox-XXXXX@demo"
+govc_password: "YourPasswordHere"
+govc_insecure: true
+govc_datastore: "workload_share_XXXXX"
+
+vm_network: "segment-sandbox-XXXXX"
+vm_folder: "/SDDC-Datacenter/vm/Workloads/sandbox-XXXXX"
+vm_guest_id: "fedora64Guest"
+vm_firmware: "efi"
+vm_cpus: 2
+vm_memory_mb: 2048
+vm_disk_controller: "scsi"
+vm_net_adapter: e1000
+
+datastore_base: "Workload-Portability"
+
+db01_vm_name: "todo-db"
+web01_vm_name: "todo-web"
+golden_vm_name: "todo-golden"
+
+govc_image: "docker.io/vmware/govc:latest"
+
+# --- Golden image (grantomation fedora-small method) ---
+fedora_version: "43"
+fedora_cloud_mirror: "https://download.fedoraproject.org/pub/fedora/linux/releases/{{ fedora_version }}/Cloud/x86_64/images"
+fedora_cloud_image: ""
+# Proven floor from grantomation (no btrfs balance): 1600M FS / 1740M disk
+btrfs_size: "1600M"
+target_size: "1740M"
+vmdk_subformat: streamOptimized
+
+guest_password: openshift
+todo_app_repo: "https://github.com/SaanviBajaj/to-do-app.git"
+todo_app_ref: "main"
+# Override with a local path to skip git clone
+app_src: ""
+
+guest_packages:
+  - qemu-guest-agent
+  - open-vm-tools
+  - ansible-core
+  - acl
+
+# --- App / networking (shared with vm-configure) ---
+backend_svc_name: "todo-db-svc"
+todo_db_ip: ""
+todo_web_ip: ""
+db01_static_ip: ""
+web01_static_ip: ""
+net_interface: ens192
+net_gateway: "198.51.100.1"
+net_dns: "198.51.100.1,8.8.8.8"
+net_prefix: 24
+
+db_name: todo
+db_user: todo
+db_password: todo
+app_port: 8080
+app_dir: /opt/to-do-app
+
+work_base: "{{ ansible_env.HOME | default(lookup('env', 'HOME'), true) | default('/root') }}/fedora-small-build"
+govc_env_path: "{{ work_base }}/govc.env"
+golden_dir: "{{ work_base }}/golden"
+fedora_cloud_cache_dir: "{{ work_base }}/cloud-images"
+app_cache_dir: "{{ work_base }}/to-do-app"
+
+vm_ip_wait: "90s"
+vm_ip_retries: 30
+vm_ip_retry_delay: 10
+
+bastion_firewall_forward_port: 80
+todo_web_service_port: 8080
+
+# MTV prep defaults (scripts/prep-mtv-2tier.sh)
+mtv_project: "portable-workload"
+mtv_ns: "openshift-mtv"

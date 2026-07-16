@@ -1,0 +1,214 @@
+---
+# Configure native PostgreSQL on the todo-db VM.
+# Run ON the database VM (console or SSH):
+#
+#   cd /home/fedora/to-do-app   # or copy vm-configure onto the guest
+#   sudo ansible-playbook /path/to/todo-db.yml \
+#     -e todo_db_ip=192.168.108.50 \
+#     -e net_gateway=192.168.108.1
+#
+# Prefer running from the repo tree copied into the golden:
+#   sudo ansible-playbook /home/fedora/workload-portability/... 
+# Or scp this directory to the guest.
+
+- name: Configure the PostgreSQL todo-db VM
+  hosts: local
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    target_hostname: todo-db
+    pg_data_dir: /var/lib/pgsql/data
+    apply_static_network: "{{ (db01_static_ip | default(todo_db_ip, true) | default('') | length) > 0 }}"
+    net_static_ip: "{{ (db01_static_ip | default(todo_db_ip, true)) }}/{{ net_prefix }}"
+
+  tasks:
+    - name: Normalize todo_db_ip from static overrides
+      ansible.builtin.set_fact:
+        todo_db_ip: "{{ todo_db_ip if todo_db_ip | length > 0 else (db01_static_ip | default('')) }}"
+
+    - name: Fail when todo_db_ip is unset (needed for env-detect on web / consistency)
+      ansible.builtin.debug:
+        msg: >-
+          todo_db_ip is empty. Env-detect on the web VM needs the DB static IP.
+          Re-run with -e todo_db_ip=... or set it in credentials.env.
+      when: todo_db_ip | length == 0
+
+    - name: Find NetworkManager connection for the NIC
+      ansible.builtin.command: nmcli -g GENERAL.CONNECTION device show {{ net_interface }}
+      register: nm_con
+      changed_when: false
+      failed_when: false
+      tags: [network]
+      when: apply_static_network | bool
+
+    - name: Pin static IPv4 on todo-db
+      ansible.builtin.command: >-
+        nmcli connection modify "{{ nm_con.stdout }}"
+        ipv4.method manual
+        ipv4.addresses {{ net_static_ip }}
+        ipv4.gateway {{ net_gateway }}
+        ipv4.dns "{{ net_dns }}"
+        ipv6.method ignore
+      when:
+        - apply_static_network | bool
+        - nm_con.rc == 0
+        - nm_con.stdout | length > 0
+      register: nm_mod
+      tags: [network]
+
+    - name: Activate static IPv4 (may drop SSH — use console)
+      ansible.builtin.command: nmcli connection up "{{ nm_con.stdout }}"
+      when:
+        - apply_static_network | bool
+        - nm_mod is changed
+      tags: [network]
+
+    - name: Set persistent hostname
+      ansible.builtin.hostname:
+        name: "{{ target_hostname }}"
+      tags: [hostname]
+
+    - name: Install PostgreSQL server
+      ansible.builtin.package:
+        name:
+          - postgresql-server
+          - postgresql
+        state: present
+
+    - name: Check whether Postgres data directory is initialized
+      ansible.builtin.stat:
+        path: "{{ pg_data_dir }}/PG_VERSION"
+      register: pg_data
+
+    - name: Initialize PostgreSQL database cluster
+      ansible.builtin.command: postgresql-setup --initdb
+      when: not pg_data.stat.exists
+
+    - name: Enable and start PostgreSQL
+      ansible.builtin.systemd:
+        name: postgresql
+        state: started
+        enabled: true
+
+    - name: Configure listen_addresses
+      ansible.builtin.lineinfile:
+        path: "{{ pg_data_dir }}/postgresql.conf"
+        regexp: '^#?listen_addresses\s*='
+        line: "listen_addresses = '*'"
+      notify: Restart postgresql
+
+    - name: Allow password auth from any address (demo)
+      ansible.builtin.blockinfile:
+        path: "{{ pg_data_dir }}/pg_hba.conf"
+        marker: "# {mark} TODO-WORKLOAD PGHBA"
+        block: |
+          host    all             all             0.0.0.0/0               scram-sha-256
+          host    all             all             ::/0                    scram-sha-256
+      notify: Restart postgresql
+
+    - name: Flush handlers so Postgres picks up listen/pg_hba before SQL
+      ansible.builtin.meta: flush_handlers
+
+    - name: Ensure todo role exists
+      become_user: postgres
+      ansible.builtin.shell: |
+        set -euo pipefail
+        psql -d postgres -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ db_user }}') THEN
+            CREATE ROLE {{ db_user }} LOGIN PASSWORD '{{ db_password }}';
+          END IF;
+        END \$\$;"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Ensure todo database exists
+      become_user: postgres
+      ansible.builtin.shell: |
+        set -euo pipefail
+        psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='{{ db_name }}'" | grep -q 1 \
+          || psql -d postgres -c "CREATE DATABASE {{ db_name }} OWNER {{ db_user }}"
+      args:
+        executable: /bin/bash
+      register: createdb
+      changed_when: "'CREATE DATABASE' in createdb.stdout"
+
+    - name: Create todos table for to-do-app
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -d {{ db_name }} -v ON_ERROR_STOP=1 -c
+        "CREATE TABLE IF NOT EXISTS todos (
+           id SERIAL PRIMARY KEY,
+           title TEXT NOT NULL,
+           completed BOOLEAN NOT NULL DEFAULT false,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+         );
+         ALTER TABLE todos OWNER TO {{ db_user }};"
+      changed_when: true
+
+    - name: Install environment detection script
+      ansible.builtin.copy:
+        src: todo-env-detect.sh
+        dest: /usr/local/bin/todo-env-detect.sh
+        mode: "0755"
+      notify: Run environment detection
+
+    - name: Install environment detection unit
+      ansible.builtin.copy:
+        src: todo-env-detect.service
+        dest: /etc/systemd/system/todo-env-detect.service
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Run environment detection
+
+    - name: Write todo-workload env file for env-detect
+      ansible.builtin.copy:
+        dest: /etc/todo-workload.env
+        mode: "0644"
+        content: |
+          TODO_DB_SVC_NAME={{ backend_svc_name }}
+          TODO_DB_IP={{ todo_db_ip }}
+      notify: Run environment detection
+
+    - name: Enable todo-env-detect at boot
+      ansible.builtin.systemd:
+        name: todo-env-detect
+        enabled: true
+        daemon_reload: true
+
+    - name: Check whether firewalld is present
+      ansible.builtin.command: systemctl list-unit-files firewalld.service
+      register: fw_unit
+      changed_when: false
+      failed_when: false
+
+    - name: Disable and mask host firewall (demo)
+      ansible.builtin.systemd:
+        name: firewalld
+        state: stopped
+        enabled: false
+        masked: true
+      when: "'firewalld.service' in fw_unit.stdout"
+
+    - name: Reclaim dnf cache
+      ansible.builtin.command: dnf clean all
+      changed_when: false
+      tags: [reclaim]
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart postgresql
+      ansible.builtin.systemd:
+        name: postgresql
+        state: restarted
+
+    - name: Run environment detection
+      ansible.builtin.systemd:
+        name: todo-env-detect
+        state: restarted
