@@ -3,6 +3,7 @@
   ansible.builtin.command:
     cmd: virt-cat -a {{ fedora_qcow_repacked }} /etc/os-release
   environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
   register: fedora_os_release
   changed_when: false
@@ -19,6 +20,7 @@
   ansible.builtin.command:
     cmd: virt-ls -a {{ fedora_qcow_repacked }} /boot
   environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
   register: fedora_boot_ls
   changed_when: false
@@ -41,6 +43,7 @@
   args:
     executable: /bin/bash
   environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
   register: fedora_vmtools_check
   changed_when: false
@@ -49,6 +52,8 @@
 - name: Report provisioned disk size
   ansible.builtin.command:
     cmd: qemu-img info --output=json {{ fedora_qcow_repacked }}
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
   register: fedora_qcow_info
   changed_when: false
 

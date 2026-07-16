@@ -10,6 +10,7 @@
       {{ fedora_efi_mb }}
       {{ fedora_boot_mb }}
   environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
   register: fedora_repack
   async: 3600

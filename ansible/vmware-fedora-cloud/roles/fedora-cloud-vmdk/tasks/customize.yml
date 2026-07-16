@@ -25,6 +25,7 @@
       --run-command 'rm -rf /var/tmp/wp-artifacts'
       --selinux-relabel
   environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
   register: fedora_customize
   async: 3600
@@ -40,6 +41,7 @@
       --run-command 'chmod 0600 /etc/NetworkManager/system-connections/wired-static.nmconnection'
       --run-command 'rm -f /etc/NetworkManager/system-connections/wired-dhcp.nmconnection'
   environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
   when: fedora_static_ip | length > 0
 

@@ -33,7 +33,9 @@ Cleanup:
 sudo ansible-playbook cleanup-fedora-cloud-vms.yml -e @credentials.env
 ```
 
-Bastion needs: `ansible`, `podman`, `curl`, `qemu-img`, `guestfs-tools` / `virt-customize` (see `bastion-build-deps`).
+Bastion needs: `ansible`, `podman`, and `curl`.
+
+`qemu-img` / `virt-customize` (guestfs) are installed via `dnf` when repos work; otherwise the playbook **builds a local Podman image** (`localhost/wp-fedora-cloud-guestfs:43`) and uses wrappers under `~/fedora-cloud-build/bin/`. First run may take several minutes to pull Fedora and install packages in that image.
 
 ---
 

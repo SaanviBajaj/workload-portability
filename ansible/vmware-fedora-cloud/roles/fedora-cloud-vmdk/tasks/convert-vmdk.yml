@@ -6,6 +6,8 @@
       -o subformat={{ fedora_vmdk_subformat }}
       {{ fedora_qcow_repacked }}
       {{ fedora_vmdk }}
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
   register: fedora_vmdk_convert
   async: 1800
   poll: 10
@@ -13,6 +15,8 @@
 - name: Report VMDK output
   ansible.builtin.command:
     cmd: qemu-img info {{ fedora_vmdk }}
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
   register: fedora_vmdk_info
   changed_when: false
 

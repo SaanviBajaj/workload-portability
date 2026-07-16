@@ -14,6 +14,10 @@
   hosts: bastion
   gather_facts: true
   become: true
+  environment:
+    # Wrappers from bastion-build-deps (host binary, else Podman guestfs image)
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+    LIBGUESTFS_BACKEND: direct
 
   tasks:
     - name: Ensure build base directory exists
