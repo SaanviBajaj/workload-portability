@@ -64,6 +64,12 @@
   failed_when: false
   changed_when: fedora_embed_pull.rc == 0
 
+- name: Remove stale container image archive before podman save
+  ansible.builtin.file:
+    path: "{{ fedora_artifacts_dir }}/{{ fedora_embed_tar }}"
+    state: absent
+  when: fedora_embed_pull.rc == 0
+
 - name: Save pulled container image archive for VMDK embedding
   ansible.builtin.command:
     cmd: podman save -o {{ fedora_artifacts_dir }}/{{ fedora_embed_tar }} {{ fedora_embed_image }}
