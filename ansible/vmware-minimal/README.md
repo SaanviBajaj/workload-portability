@@ -34,16 +34,16 @@ Normally you'd install an OS, install Docker/Podman, configure networking, uploa
 
 ### How is "minimal" different from "bootc"?
 
-| | Bootc track (`vmware-bootc`) | **Minimal Alpine (this guide)** | Minimal Fedora (`vmware-minimal-fedora`) |
-|---|------------------------------|--------------------------------|------------------------------------------|
-| OS inside the VM | Full CentOS Stream 9 bootc image | Tiny Alpine Linux | Fedora 41 |
-| Disk size | ~1.7 GB per VM | **~768 MB per VM** | **~1 GiB per VM** (slimmed Fedora) |
-| MTV / OpenShift Virt | Supported | **Not supported** | **Supported** |
-| Good when | You want a "real" RHEL-like VM | Smallest demo disks | Smallish disks **and** migration |
+| | Bootc track (`vmware-bootc`) | **Minimal Alpine (this guide)** |
+|---|------------------------------|--------------------------------|
+| OS inside the VM | Full CentOS Stream 9 bootc image | Tiny Alpine Linux |
+| Disk size | ~1.7 GB per VM | **~768 MB per VM** |
+| MTV / OpenShift Virt | Supported | **Not supported** (use the bootc track for MTV) |
+| Good when | You want a "real" RHEL-like VM / migration | Smallest demo disks |
 
 All tracks create the **same VM names** (`todo-db`, `todo-web`). **Do not run more than one at the same time** — pick one track.
 
-For MTV migrations, use [`../vmware-minimal-fedora/README.md`](../vmware-minimal-fedora/README.md) instead of Alpine.
+If you need MTV / OpenShift Virtualization migration, use the **bootc** track instead of Alpine.
 
 If you already deployed the bootc VMs, see [README-CLEANUP.md](README-CLEANUP.md).
 
