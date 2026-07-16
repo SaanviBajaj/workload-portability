@@ -86,6 +86,7 @@
           -v /etc/resolv.conf:/etc/resolv.conf:ro
           {{ fedora_image }}
           dnf -y --installroot=/mnt --releasever={{ fedora_version }}
+          --use-host-config
           --setopt=install_weak_deps=False
           --setopt=tsflags=nodocs
           --exclude={{ fedora_dnf_exclude | join(',') }}
