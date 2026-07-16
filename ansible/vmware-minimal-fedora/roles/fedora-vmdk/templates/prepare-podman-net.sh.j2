@@ -1,0 +1,6 @@
+#!/bin/bash
+# Prepare the host for rootful podman (host networking) on slim Fedora.
+sysctl --system 2>/dev/null || true
+modprobe ip_tables 2>/dev/null || true
+modprobe nf_nat 2>/dev/null || true
+sysctl -w net.ipv4.ip_forward=1 2>/dev/null || true

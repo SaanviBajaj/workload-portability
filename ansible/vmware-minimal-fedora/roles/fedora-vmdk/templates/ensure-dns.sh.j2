@@ -1,0 +1,10 @@
+#!/bin/bash
+# Ensure resolv.conf has usable nameservers (lab DHCP can leave only ::1).
+{
+  echo "# managed by ensure-dns"
+  if [ -f /etc/resolv.conf ]; then
+    grep '^nameserver ' /etc/resolv.conf | grep -vE '127\.|::1' || true
+  fi
+  echo "nameserver 8.8.8.8"
+  echo "nameserver 1.1.1.1"
+} > /etc/resolv.conf.tmp && mv /etc/resolv.conf.tmp /etc/resolv.conf

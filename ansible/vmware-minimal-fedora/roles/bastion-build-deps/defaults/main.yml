@@ -1,0 +1,12 @@
+---
+bastion_build_packages:
+  - util-linux
+  - e2fsprogs
+  - podman
+
+qemu_img_packages:
+  - qemu-img
+  - qemu-kvm-core
+
+# Used when the bastion has no dnf repos; apk runs inside the container.
+qemu_img_image: "docker.io/library/alpine:3.20"
