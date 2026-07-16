@@ -1,0 +1,13 @@
+FROM registry.fedoraproject.org/fedora:43
+
+# Offline image customization tooling for the vmware-fedora-cloud track.
+# Built once on the bastion when host packages are unavailable (no dnf repos).
+RUN dnf -y install \
+      qemu-img \
+      guestfs-tools \
+      libguestfs \
+      libguestfs-xfs \
+      curl \
+    && dnf clean all
+
+ENV LIBGUESTFS_BACKEND=direct

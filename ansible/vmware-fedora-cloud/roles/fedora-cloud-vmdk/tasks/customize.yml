@@ -1,0 +1,51 @@
+---
+- name: Customize Fedora Cloud Base with virt-customize
+  ansible.builtin.command:
+    cmd: >-
+      virt-customize
+      --format qcow2
+      -a {{ fedora_qcow_work }}
+      --hostname {{ fedora_hostname }}
+      --mkdir /etc/systemd/journald.conf.d
+      --mkdir /etc/cloud/cloud.cfg.d
+      --mkdir /etc/NetworkManager/system-connections
+      --mkdir /var/tmp/wp-artifacts
+      --mkdir /usr/local/bin
+      --install {{ fedora_install_packages | join(',') }}
+      --copy-in {{ fedora_artifacts_dir }}/todo-start.sh:/usr/local/bin/
+      --copy-in {{ fedora_artifacts_dir }}/todo.service:/etc/systemd/system/
+      --copy-in {{ fedora_artifacts_dir }}/journald-volatile.conf:/etc/systemd/journald.conf.d/
+      --copy-in {{ fedora_artifacts_dir }}/99-disable-network-config.cfg:/etc/cloud/cloud.cfg.d/
+      --copy-in {{ fedora_artifacts_dir }}/wired-dhcp.nmconnection:/etc/NetworkManager/system-connections/
+      --copy-in {{ fedora_artifacts_dir }}/guest-setup.sh:/var/tmp/wp-artifacts/
+      --copy-in {{ fedora_artifacts_dir }}/{{ fedora_embed_tar }}:/var/tmp/wp-artifacts/
+      --run-command 'chmod 0755 /usr/local/bin/todo-start.sh /var/tmp/wp-artifacts/guest-setup.sh'
+      --run-command 'chmod 0600 /etc/NetworkManager/system-connections/wired-dhcp.nmconnection'
+      --run-command '/var/tmp/wp-artifacts/guest-setup.sh'
+      --run-command 'rm -rf /var/tmp/wp-artifacts'
+      --selinux-relabel
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+    LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
+  register: fedora_customize
+  async: 3600
+  poll: 15
+
+- name: Apply static NetworkManager connection when configured
+  ansible.builtin.command:
+    cmd: >-
+      virt-customize
+      --format qcow2
+      -a {{ fedora_qcow_work }}
+      --copy-in {{ fedora_artifacts_dir }}/wired-static.nmconnection:/etc/NetworkManager/system-connections/
+      --run-command 'chmod 0600 /etc/NetworkManager/system-connections/wired-static.nmconnection'
+      --run-command 'rm -f /etc/NetworkManager/system-connections/wired-dhcp.nmconnection'
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+    LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
+  when: fedora_static_ip | length > 0
+
+- name: Remove container image archive from artifacts after embedding
+  ansible.builtin.file:
+    path: "{{ fedora_artifacts_dir }}/{{ fedora_embed_tar }}"
+    state: absent

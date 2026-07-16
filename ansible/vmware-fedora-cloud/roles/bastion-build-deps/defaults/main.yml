@@ -1,0 +1,23 @@
+---
+bastion_build_packages:
+  - curl
+  - qemu-img
+  - guestfs-tools
+  - libguestfs
+  - libguestfs-xfs
+
+# Local image built on bastion when host RPMs are unavailable
+guestfs_image: "localhost/wp-fedora-cloud-guestfs:43"
+guestfs_bin_dir: "{{ work_base }}/bin"
+
+guestfs_wrapper_tools:
+  - qemu-img
+  - virt-customize
+  - virt-df
+  - virt-cat
+  - virt-ls
+  - virt-inspector
+  - virt-sparsify
+  - virt-tar-out
+  - virt-filesystems
+  - guestfish

@@ -1,0 +1,53 @@
+---
+- name: Require DB host when building todo-web image
+  ansible.builtin.fail:
+    msg: "db_host must be set when fedora_role is web (deploy todo-db first, or set db_host / db01_static_ip)."
+  when:
+    - fedora_role == 'web'
+    - db_host | length == 0
+
+- name: Validate disk_mb against absolute ceiling
+  ansible.builtin.fail:
+    msg: >-
+      disk_mb={{ disk_mb }} exceeds disk_mb_max={{ disk_mb_max }}.
+      Raise disk_mb_max only if you intentionally accept larger provisioned disks.
+  when: disk_mb | int > disk_mb_max | int
+
+- name: Ensure Fedora Cloud build directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ fedora_build_dir }}"
+    - "{{ fedora_output_dir }}"
+    - "{{ fedora_work_dir }}"
+    - "{{ fedora_artifacts_dir }}"
+    - "{{ fedora_cloud_cache_dir }}"
+
+- name: Remove previous VMDK / work qcow artifacts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ fedora_vmdk }}"
+    - "{{ fedora_qcow_work }}"
+    - "{{ fedora_qcow_repacked }}"
+
+- name: Download and verify Fedora Cloud Base image
+  ansible.builtin.include_tasks: download.yml
+
+- name: Stage guest artifacts (units, scripts, container tar)
+  ansible.builtin.include_tasks: prepare-artifacts.yml
+
+- name: Customize Cloud Base image with virt-customize
+  ansible.builtin.include_tasks: customize.yml
+
+- name: Repack into provisioned disk_mb with UEFI+boot+root layout
+  ansible.builtin.include_tasks: repack.yml
+
+- name: Assert MTV / virt-v2v guest markers
+  ansible.builtin.include_tasks: assert-mtv.yml
+
+- name: Convert repacked qcow2 to streamOptimized VMDK
+  ansible.builtin.include_tasks: convert-vmdk.yml

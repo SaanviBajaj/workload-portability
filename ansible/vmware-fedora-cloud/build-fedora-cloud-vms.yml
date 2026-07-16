@@ -1,0 +1,117 @@
+---
+# Build Fedora Cloud Base VMDKs (default disk_mb=1740 ≈ 1.7 GiB) and deploy todo-db + todo-web.
+#
+# Run on the bastion VM:
+#   cd ansible/vmware-fedora-cloud
+#   sudo ansible-playbook build-fedora-cloud-vms.yml -e @credentials.env
+#
+# Tags:
+#   sudo ansible-playbook build-fedora-cloud-vms.yml -e @credentials.env --tags db01
+#   sudo ansible-playbook build-fedora-cloud-vms.yml -e @credentials.env --tags web01
+#   sudo ansible-playbook build-fedora-cloud-vms.yml -e @credentials.env --tags bastion-firewall
+
+- name: Build and deploy Fedora Cloud todo-db and todo-web VMs on VMware
+  hosts: bastion
+  gather_facts: true
+  become: true
+  environment:
+    # Wrappers from bastion-build-deps (host binary, else Podman guestfs image)
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+    LIBGUESTFS_BACKEND: direct
+
+  tasks:
+    - name: Ensure build base directory exists
+      ansible.builtin.file:
+        path: "{{ work_base }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render govc environment file
+      ansible.builtin.template:
+        src: govc.env.j2
+        dest: "{{ govc_env_path }}"
+        mode: "0600"
+      become: false
+
+    - name: Install build dependencies on bastion
+      ansible.builtin.include_role:
+        name: bastion-build-deps
+      tags: [db01, web01]
+
+    # -------------------------------------------------------------------------
+    # todo-db
+    # -------------------------------------------------------------------------
+    - name: Build todo-db Fedora Cloud VMDK
+      ansible.builtin.include_role:
+        name: fedora-cloud-vmdk
+      vars:
+        fedora_role: db
+        fedora_build_dir: "{{ db01_build_dir }}"
+        fedora_hostname: "{{ db01_vm_name }}"
+        fedora_static_ip: "{{ db01_static_ip }}"
+      tags: [db01]
+
+    - name: Set DB host from configured static IP
+      ansible.builtin.set_fact:
+        db_host: "{{ db01_static_ip }}"
+      when:
+        - db_host | length == 0
+        - db01_static_ip | length > 0
+      tags: [db01, web01]
+
+    - name: Deploy todo-db VM to VMware
+      ansible.builtin.include_role:
+        name: vmware-vm
+      vars:
+        vm_name: "{{ db01_vm_name }}"
+        vm_build_dir: "{{ db01_build_dir }}"
+        vm_datastore_folder: todo-db
+        vm_vmdk_filename: todo-db-disk1.vmdk
+        vm_wait_for_ip: "{{ db_host | length == 0 and db01_static_ip | length == 0 }}"
+        vm_static_ip: "{{ db01_static_ip }}"
+        vm_ip_fact_name: todo_db_ip
+      tags: [db01]
+
+    - name: Set DB host from discovered todo-db IP
+      ansible.builtin.set_fact:
+        db_host: "{{ todo_db_ip }}"
+      when:
+        - db_host | length == 0
+        - todo_db_ip is defined
+        - todo_db_ip | length > 0
+      tags: [db01, web01]
+
+    # -------------------------------------------------------------------------
+    # todo-web
+    # -------------------------------------------------------------------------
+    - name: Build todo-web Fedora Cloud VMDK
+      ansible.builtin.include_role:
+        name: fedora-cloud-vmdk
+      vars:
+        fedora_role: web
+        fedora_build_dir: "{{ web01_build_dir }}"
+        fedora_hostname: "{{ web01_vm_name }}"
+        fedora_static_ip: "{{ web01_static_ip }}"
+      tags: [web01]
+
+    - name: Deploy todo-web VM to VMware
+      ansible.builtin.include_role:
+        name: vmware-vm
+      vars:
+        vm_name: "{{ web01_vm_name }}"
+        vm_build_dir: "{{ web01_build_dir }}"
+        vm_datastore_folder: todo-web
+        vm_vmdk_filename: todo-web-disk1.vmdk
+        vm_wait_for_ip: "{{ web01_static_ip | length == 0 }}"
+        vm_static_ip: "{{ web01_static_ip }}"
+        vm_ip_fact_name: todo_web_ip
+      tags: [web01, bastion-firewall]
+
+- name: Configure bastion firewall HTTP forward to todo-web
+  hosts: bastion
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: bastion-firewall
+      tags: [bastion-firewall]

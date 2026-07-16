@@ -1,0 +1,17 @@
+---
+- name: Run Cloud Base disk repack to disk_mb
+  ansible.builtin.command:
+    cmd: >-
+      {{ fedora_build_dir }}/repack-disk.sh
+      {{ fedora_qcow_work }}
+      {{ fedora_qcow_repacked }}
+      {{ disk_mb }}
+      {{ fedora_min_free_mb }}
+      {{ fedora_efi_mb }}
+      {{ fedora_boot_mb }}
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+    LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
+  register: fedora_repack
+  async: 3600
+  poll: 15

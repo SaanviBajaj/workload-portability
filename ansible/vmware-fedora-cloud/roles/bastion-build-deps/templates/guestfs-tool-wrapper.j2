@@ -1,0 +1,29 @@
+#!/bin/bash
+# Prefer host binary; otherwise run inside {{ guestfs_image }}.
+set -euo pipefail
+
+TOOL="$(basename "$0")"
+HOST_BIN=""
+for candidate in "/usr/bin/${TOOL}" "/bin/${TOOL}" "/usr/sbin/${TOOL}"; do
+  if [[ -x "${candidate}" ]]; then
+    HOST_BIN="${candidate}"
+    break
+  fi
+done
+
+if [[ -n "${HOST_BIN}" ]]; then
+  exec "${HOST_BIN}" "$@"
+fi
+
+# Privileged + label=disable: libguestfs needs broad device access; :z on /tmp
+# fails with "SELinux relabeling of /tmp is not allowed" on enforcing bastions.
+exec podman run --rm --privileged --network host \
+  --security-opt label=disable \
+  -e LIBGUESTFS_BACKEND=direct \
+  -e HOME=/root \
+  -v "{{ work_base }}:{{ work_base }}" \
+  -v /var/tmp:/var/tmp \
+  -v /tmp:/tmp \
+  -w "{{ work_base }}" \
+  "{{ guestfs_image }}" \
+  "${TOOL}" "$@"

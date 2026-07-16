@@ -1,0 +1,38 @@
+---
+# Role vars (override from playbook)
+fedora_role: db
+fedora_build_dir: "{{ db01_build_dir }}"
+fedora_hostname: "{{ db01_vm_name }}"
+fedora_static_ip: ""
+
+fedora_output_dir: "{{ fedora_build_dir }}/output"
+fedora_work_dir: "{{ fedora_build_dir }}/work"
+fedora_artifacts_dir: "{{ fedora_build_dir }}/artifacts"
+fedora_qcow_work: "{{ fedora_work_dir }}/customized.qcow2"
+fedora_qcow_repacked: "{{ fedora_work_dir }}/repacked.qcow2"
+fedora_vmdk: "{{ fedora_output_dir }}/disk.vmdk"
+
+# Default Cloud Base filename pattern; resolved from CHECKSUM when empty
+fedora_cloud_image_default: "Fedora-Cloud-Base-Generic-{{ fedora_version }}-1.6.x86_64.qcow2"
+
+fedora_common_packages:
+  - open-vm-tools
+  - qemu-guest-agent
+  - podman
+  - NetworkManager
+  - iptables-nft
+
+fedora_web_packages:
+  - openssh-server
+  - passwd
+  - shadow-utils
+  - sudo
+
+# Repack partition layout (UEFI-only; no BIOS boot partition)
+fedora_efi_mb: 50
+fedora_boot_mb: 256
+
+fedora_vmdk_subformat: streamOptimized
+
+# guestfs backend — direct avoids libvirt requirement on bastion
+libguestfs_backend: direct
