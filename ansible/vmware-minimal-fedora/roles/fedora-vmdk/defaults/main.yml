@@ -31,6 +31,7 @@ fedora_common_packages:
   - shadow-utils
 
 # Dropped from dnf installroot (hardware firmware / extras we do not need in VMware)
+# Note: netavark/aardvark-dns cannot be excluded — podman requires containers-common-extra → netavark
 fedora_dnf_exclude:
   - "linux-firmware*"
   - "*-firmware"
@@ -40,8 +41,6 @@ fedora_dnf_exclude:
   - fwupd
   - ModemManager
   - NetworkManager*
-  - netavark
-  - aardvark-dns
 
 fedora_static_ip: ""
 fedora_static_netmask: "255.255.255.0"
