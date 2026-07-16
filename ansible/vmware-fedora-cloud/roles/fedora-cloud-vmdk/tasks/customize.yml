@@ -3,8 +3,8 @@
   ansible.builtin.command:
     cmd: >-
       virt-customize
-      -a {{ fedora_qcow_work }}
       --format qcow2
+      -a {{ fedora_qcow_work }}
       --hostname {{ fedora_hostname }}
       --mkdir /etc/systemd/journald.conf.d
       --mkdir /etc/cloud/cloud.cfg.d
@@ -35,8 +35,8 @@
   ansible.builtin.command:
     cmd: >-
       virt-customize
-      -a {{ fedora_qcow_work }}
       --format qcow2
+      -a {{ fedora_qcow_work }}
       --copy-in {{ fedora_artifacts_dir }}/wired-static.nmconnection:/etc/NetworkManager/system-connections/
       --run-command 'chmod 0600 /etc/NetworkManager/system-connections/wired-static.nmconnection'
       --run-command 'rm -f /etc/NetworkManager/system-connections/wired-dhcp.nmconnection'
