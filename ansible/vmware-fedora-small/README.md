@@ -27,33 +27,15 @@ cp credentials.env.example credentials.env
 # 1) Build golden (~1740M virtual disk)
 sudo ansible-playbook golden/fedora-small.yml -e @credentials.env
 
-# 2) Upload VMDK, create todo-db, clone todo-web
+# 2) Upload VMDK, create todo-db, clone todo-web, discover IPs, configure guests
 sudo ansible-playbook deploy-fedora-small-vms.yml -e @credentials.env
 ```
 
-Deploy prints the guest IPs and the exact configure commands.
+Deploy uses `govc vm.ip` to find guest IPs, then SSHs in (`fedora` / `openshift`) and runs the `vm-configure` playbooks automatically (`auto_configure_guests: true`).
 
-### On each guest (console or SSH)
+Skip auto-configure: `-e auto_configure_guests=false` (then run the guest playbooks yourself).
 
-User `fedora` / password `openshift` (root same password).
-
-```bash
-# todo-db
-cd /home/fedora/vm-configure
-sudo ansible-playbook todo-db.yml \
-  -e todo_db_ip=<db-ip> \
-  -e db01_static_ip=<db-ip> \
-  -e net_gateway=<gw> \
-  -e net_dns=<gw>,8.8.8.8
-
-# todo-web
-cd /home/fedora/vm-configure
-sudo ansible-playbook todo-web.yml \
-  -e todo_db_ip=<db-ip> \
-  -e web01_static_ip=<web-ip> \
-  -e net_gateway=<gw> \
-  -e net_dns=<gw>,8.8.8.8
-```
+Optional static IPs in `credentials.env` (`db01_static_ip` / `web01_static_ip`) pin addresses; otherwise guests keep DHCP and only get `todo_db_ip` for env-detect.
 
 Verify:
 

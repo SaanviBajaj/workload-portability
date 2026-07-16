@@ -16,8 +16,9 @@
   vars:
     target_hostname: todo-web
     app_src_on_guest: /home/fedora/to-do-app
-    apply_static_network: "{{ (web01_static_ip | default(todo_web_ip, true) | default('') | length) > 0 }}"
-    net_static_ip: "{{ (web01_static_ip | default(todo_web_ip, true)) }}/{{ net_prefix }}"
+    # Only pin static IP when explicitly requested (see todo-db.yml).
+    apply_static_network: "{{ (web01_static_ip | default('') | length) > 0 }}"
+    net_static_ip: "{{ web01_static_ip }}/{{ net_prefix }}"
     run_health_check: true
     health_check_retries: 15
 

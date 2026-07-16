@@ -20,8 +20,10 @@
   vars:
     target_hostname: todo-db
     pg_data_dir: /var/lib/pgsql/data
-    apply_static_network: "{{ (db01_static_ip | default(todo_db_ip, true) | default('') | length) > 0 }}"
-    net_static_ip: "{{ (db01_static_ip | default(todo_db_ip, true)) }}/{{ net_prefix }}"
+    # Only pin static IP when explicitly requested — DHCP discovered IPs must not
+    # force a static rewrite with a possibly-wrong gateway (breaks SSH mid-config).
+    apply_static_network: "{{ (db01_static_ip | default('') | length) > 0 }}"
+    net_static_ip: "{{ db01_static_ip }}/{{ net_prefix }}"
 
   tasks:
     - name: Normalize todo_db_ip from static overrides

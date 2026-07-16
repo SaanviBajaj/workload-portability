@@ -1,15 +1,13 @@
 ---
-# Deploy the Fedora-small golden VMDK as todo-db, clone todo-web, power on, discover IPs.
+# Deploy the Fedora-small golden VMDK as todo-db, clone todo-web, power on, discover IPs,
+# then (by default) SSH into each guest and run vm-configure automatically.
 #
 # Prerequisites: golden/fedora-small.yml has produced
 #   ~/fedora-small-build/golden/todo_small.vmdk
 #
 #   sudo ansible-playbook deploy-fedora-small-vms.yml -e @credentials.env
 #
-# Then on each guest (console/SSH as fedora / openshift):
-#   cd /home/fedora/vm-configure
-#   sudo ansible-playbook todo-db.yml -e todo_db_ip=<db-ip> -e db01_static_ip=<db-ip> ...
-#   sudo ansible-playbook todo-web.yml -e todo_db_ip=<db-ip> -e web01_static_ip=<web-ip> ...
+# Skip remote configure: -e auto_configure_guests=false
 
 - name: Deploy Fedora-small todo-db and todo-web from golden VMDK
   hosts: bastion
@@ -20,6 +18,13 @@
     govc_cmd: >-
       podman run --rm --env-file {{ govc_env_path }}
       {{ govc_image }} /govc
+    guest_ssh_base: >-
+      sshpass -e ssh
+      -o StrictHostKeyChecking=no
+      -o UserKnownHostsFile=/dev/null
+      -o PreferredAuthentications=password
+      -o PubkeyAuthentication=no
+      -o ConnectTimeout=10
 
   tasks:
     - name: Ensure work base exists
@@ -114,31 +119,112 @@
       when: web01_static_ip | length > 0
       tags: [web01, bastion-firewall]
 
-    - name: Print configure instructions
+    - name: Report discovered guest IPs
       ansible.builtin.debug:
         msg: |
           VMs are up.
             todo-db  IP: {{ todo_db_ip }}
             todo-web IP: {{ todo_web_ip }}
+      tags: [db01, web01]
 
-          On todo-db console/SSH (fedora / {{ guest_password }}):
+    - name: Skip remote guest configure
+      ansible.builtin.debug:
+        msg: |
+          auto_configure_guests=false — configure manually on each guest
+          ({{ guest_ssh_user }} / {{ guest_password }}):
+
+            # todo-db
             cd /home/fedora/vm-configure
             sudo ansible-playbook todo-db.yml \
               -e todo_db_ip={{ todo_db_ip }} \
-              -e db01_static_ip={{ todo_db_ip }} \
               -e net_gateway={{ net_gateway }} \
               -e net_dns={{ net_dns }}
 
-          On todo-web:
+            # todo-web
             cd /home/fedora/vm-configure
             sudo ansible-playbook todo-web.yml \
               -e todo_db_ip={{ todo_db_ip }} \
-              -e web01_static_ip={{ todo_web_ip }} \
               -e net_gateway={{ net_gateway }} \
               -e net_dns={{ net_dns }}
+      when: not (auto_configure_guests | bool)
+      tags: [configure]
 
-          Then: curl http://{{ todo_web_ip }}:{{ app_port }}/health
-      tags: [db01, web01]
+    - name: Ensure sshpass is installed for remote configure
+      ansible.builtin.package:
+        name: sshpass
+        state: present
+      when: auto_configure_guests | bool
+      tags: [configure]
+
+    - name: Wait for SSH on todo-db
+      ansible.builtin.wait_for:
+        host: "{{ todo_db_ip }}"
+        port: 22
+        timeout: "{{ guest_ssh_timeout }}"
+        search_regex: OpenSSH
+      when: auto_configure_guests | bool
+      tags: [configure, db01]
+
+    - name: Configure todo-db over SSH
+      ansible.builtin.shell: |
+        {{ guest_ssh_base }} {{ guest_ssh_user }}@{{ todo_db_ip }} \
+          "cd /home/fedora/vm-configure && sudo ansible-playbook todo-db.yml \
+            -e todo_db_ip={{ todo_db_ip }} \
+            {% if db01_static_ip | length > 0 %}-e db01_static_ip={{ db01_static_ip }} \{% endif %}
+            -e net_gateway={{ net_gateway }} \
+            -e net_dns={{ net_dns }}"
+      args:
+        executable: /bin/bash
+      environment:
+        SSHPASS: "{{ guest_password }}"
+      when: auto_configure_guests | bool
+      tags: [configure, db01]
+
+    - name: Wait for SSH on todo-web
+      ansible.builtin.wait_for:
+        host: "{{ todo_web_ip }}"
+        port: 22
+        timeout: "{{ guest_ssh_timeout }}"
+        search_regex: OpenSSH
+      when: auto_configure_guests | bool
+      tags: [configure, web01]
+
+    - name: Configure todo-web over SSH
+      ansible.builtin.shell: |
+        {{ guest_ssh_base }} {{ guest_ssh_user }}@{{ todo_web_ip }} \
+          "cd /home/fedora/vm-configure && sudo ansible-playbook todo-web.yml \
+            -e todo_db_ip={{ todo_db_ip }} \
+            {% if web01_static_ip | length > 0 %}-e web01_static_ip={{ web01_static_ip }} \{% endif %}
+            -e net_gateway={{ net_gateway }} \
+            -e net_dns={{ net_dns }}"
+      args:
+        executable: /bin/bash
+      environment:
+        SSHPASS: "{{ guest_password }}"
+      when: auto_configure_guests | bool
+      tags: [configure, web01]
+
+    - name: Verify todo-web health from bastion
+      ansible.builtin.uri:
+        url: "http://{{ todo_web_ip }}:{{ app_port }}/health"
+        return_content: true
+      register: web_health
+      until: web_health.status | default(0) == 200
+      retries: 20
+      delay: 5
+      when: auto_configure_guests | bool
+      tags: [configure, web01]
+
+    - name: Report auto-configure result
+      ansible.builtin.debug:
+        msg: |
+          Guests configured.
+            todo-db  IP: {{ todo_db_ip }}
+            todo-web IP: {{ todo_web_ip }}
+            health: {{ web_health.content | default('n/a') }}
+          curl http://{{ todo_web_ip }}:{{ app_port }}/health
+      when: auto_configure_guests | bool
+      tags: [configure]
 
 - name: Configure bastion firewall HTTP forward to todo-web
   hosts: bastion

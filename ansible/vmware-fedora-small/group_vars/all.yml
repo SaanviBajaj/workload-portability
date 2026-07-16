@@ -72,6 +72,11 @@ vm_ip_wait: "90s"
 vm_ip_retries: 30
 vm_ip_retry_delay: 10
 
+# After deploy discovers guest IPs, SSH in and run vm-configure playbooks
+auto_configure_guests: true
+guest_ssh_user: fedora
+guest_ssh_timeout: 300
+
 bastion_firewall_forward_port: 80
 todo_web_service_port: 8080
 
