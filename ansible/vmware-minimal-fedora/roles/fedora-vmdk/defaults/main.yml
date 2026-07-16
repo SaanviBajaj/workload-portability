@@ -6,7 +6,9 @@ fedora_vmdk_subformat: streamOptimized
 fedora_build_dir: "{{ work_base }}/fedora-build"
 fedora_hostname: fedora-vm
 
-fedora_image: "docker.io/library/fedora:{{ fedora_version }}"
+# DNF5 (Fedora 41+) needs --use-host-config for empty installroot repos.
+# DNF4 (Fedora 40 and earlier) does not support that flag.
+fedora_dnf_use_host_config: "{{ (fedora_version | int) >= 41 }}"
 fedora_output_dir: "{{ fedora_build_dir }}/output"
 fedora_mnt: "{{ fedora_build_dir }}/mnt"
 fedora_raw: "{{ fedora_build_dir }}/disk.raw"
