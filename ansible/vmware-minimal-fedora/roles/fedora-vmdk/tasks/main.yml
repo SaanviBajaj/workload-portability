@@ -127,19 +127,14 @@
         dest: "{{ fedora_mnt }}/etc/hostname"
         mode: "0644"
 
-    - name: Ensure /etc/os-release points at Fedora identity data
-      ansible.builtin.file:
-        src: "../usr/lib/os-release"
-        dest: "{{ fedora_mnt }}/etc/os-release"
-        state: link
-        force: true
-
-    - name: Ensure /etc/redhat-release exists for guest inspection
+    - name: Assert Fedora release files exist for virt-v2v inspection
       ansible.builtin.shell: |
         set -euo pipefail
-        if [ -e "{{ fedora_mnt }}/etc/fedora-release" ] && [ ! -e "{{ fedora_mnt }}/etc/redhat-release" ]; then
-          ln -s fedora-release "{{ fedora_mnt }}/etc/redhat-release"
-        fi
+        MNT="{{ fedora_mnt }}"
+        test -e "$MNT/etc/os-release"
+        grep -q '^ID=fedora' "$MNT/etc/os-release"
+        test -e "$MNT/etc/fedora-release" || test -e "$MNT/etc/redhat-release"
+        test -d "$MNT/var/lib/rpm"
       args:
         executable: /bin/bash
       changed_when: false
@@ -460,6 +455,39 @@
         executable: /bin/bash
       changed_when: true
 
+    - name: Bind mount pseudo-filesystems into Fedora chroot for boot tooling
+      ansible.builtin.command:
+        cmd: mount --bind /{{ item }} {{ fedora_mnt }}/{{ item }}
+      loop:
+        - dev
+        - proc
+        - sys
+
+    - name: Install kernel into /boot and generate initramfs for virt-v2v
+      ansible.builtin.shell: |
+        set -euo pipefail
+        MNT="{{ fedora_mnt }}"
+        KVER="$(ls -1 "${MNT}/lib/modules" | sort -V | tail -1)"
+        if [ -z "${KVER}" ]; then
+          echo "No kernel modules directory found under /lib/modules" >&2
+          exit 1
+        fi
+        chroot "${MNT}" mkdir -p /boot/grub2
+        chroot "${MNT}" kernel-install add "${KVER}"
+        chroot "${MNT}" dracut -f --kver "${KVER}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Unmount pseudo-filesystems from Fedora chroot after boot tooling
+      ansible.builtin.command:
+        cmd: umount {{ fedora_mnt }}/{{ item }}
+      loop:
+        - sys
+        - proc
+        - dev
+      failed_when: false
+
     - name: Configure GRUB defaults for Fedora rootfs
       ansible.builtin.template:
         src: grub-default.j2
@@ -473,6 +501,21 @@
     - name: Generate GRUB configuration in Fedora chroot
       ansible.builtin.command:
         cmd: chroot {{ fedora_mnt }} grub2-mkconfig -o /boot/grub2/grub.cfg
+
+    - name: Verify virt-v2v inspection markers exist in Fedora rootfs
+      ansible.builtin.shell: |
+        set -euo pipefail
+        MNT="{{ fedora_mnt }}"
+        KVER="$(ls -1 "${MNT}/lib/modules" | sort -V | tail -1)"
+        test -n "${KVER}"
+        test -n "$(ls -1 "${MNT}/boot/vmlinuz-"* 2>/dev/null | head -1)"
+        test -n "$(ls -1 "${MNT}/boot/initramfs-"* 2>/dev/null | head -1)"
+        test -f "${MNT}/boot/grub2/grub.cfg"
+        grep -q '^ID=fedora' "${MNT}/etc/os-release"
+        echo "virt-v2v markers OK for Fedora ${KVER}"
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Sync disk before unmount
       ansible.builtin.command:

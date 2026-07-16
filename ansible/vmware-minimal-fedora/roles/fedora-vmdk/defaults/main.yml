@@ -25,6 +25,7 @@ fedora_common_packages:
   - kernel-core
   - kernel-modules-core
   - kernel-modules
+  - dracut
   - grub2-pc
   - grub2-tools
   - e2fsprogs

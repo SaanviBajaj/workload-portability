@@ -14,7 +14,9 @@ Builds the same **todo-db** / **todo-web** demo as the Alpine track, but with a 
 
 Fedora + Podman still needs ~560 MiB for the OS install alone, so disks cannot match Alpine’s 768 MB. **1152 MB** is the practical minimum for this track (1024 MB leaves too little free space after first boot for MTV).
 
-The image is built to look like a normal Fedora installation for `virt-v2v` inspection: Fedora release identity packages are installed explicitly, standard `/etc/os-release` and `/etc/redhat-release` files are present, and core kernel modules are included.
+The image is built to look like a normal Fedora installation for `virt-v2v` inspection: Fedora release identity packages are installed explicitly, `kernel-install` + `dracut` populate `/boot`, and the playbook verifies `/etc/os-release`, RPM metadata, `vmlinuz`, and `initramfs` before upload.
+
+If MTV still shows **Unsupported operating system detected**, confirm in vSphere that the VM **Guest OS** is **Fedora (64-bit)** / `fedora64Guest`, not `Other Linux`. The deploy playbook sets this on create and updates it on existing VMs.
 
 **Do not run this track and Alpine/bootc at the same time** — they use the same VM names (`todo-db`, `todo-web`).
 
