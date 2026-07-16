@@ -456,12 +456,16 @@
       changed_when: true
 
     - name: Bind mount pseudo-filesystems into Fedora chroot for boot tooling
-      ansible.builtin.command:
-        cmd: mount --bind /{{ item }} {{ fedora_mnt }}/{{ item }}
-      loop:
-        - dev
-        - proc
-        - sys
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for fs in dev proc sys; do
+          if ! mountpoint -q "{{ fedora_mnt }}/${fs}"; then
+            mount --bind "/${fs}" "{{ fedora_mnt }}/${fs}"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
 
     - name: Install kernel into /boot and generate initramfs for virt-v2v
       ansible.builtin.shell: |
@@ -472,9 +476,30 @@
           echo "No kernel modules directory found under /lib/modules" >&2
           exit 1
         fi
+        VMLINUZ="/lib/modules/${KVER}/vmlinuz"
+        if [ ! -f "${MNT}${VMLINUZ}" ]; then
+          echo "Kernel image missing at ${MNT}${VMLINUZ}" >&2
+          ls -la "${MNT}/lib/modules/${KVER}/" >&2 || true
+          exit 1
+        fi
         chroot "${MNT}" mkdir -p /boot/grub2
-        chroot "${MNT}" kernel-install add "${KVER}"
-        chroot "${MNT}" dracut -f --kver "${KVER}"
+        # kernel-install requires VERSION + IMAGE path (Fedora stores vmlinuz under /lib/modules)
+        chroot "${MNT}" kernel-install add "${KVER}" "${VMLINUZ}" || {
+          # Fallback when kernel-install plugins are incomplete in installroot
+          cp -a "${MNT}${VMLINUZ}" "${MNT}/boot/vmlinuz-${KVER}"
+          if [ -f "${MNT}/lib/modules/${KVER}/config" ]; then
+            cp -a "${MNT}/lib/modules/${KVER}/config" "${MNT}/boot/config-${KVER}"
+          fi
+          if [ -f "${MNT}/lib/modules/${KVER}/System.map" ]; then
+            cp -a "${MNT}/lib/modules/${KVER}/System.map" "${MNT}/boot/System.map-${KVER}"
+          fi
+        }
+        if [ ! -f "${MNT}/boot/vmlinuz-${KVER}" ] && [ ! -f "${MNT}/boot/vmlinuz" ]; then
+          echo "kernel-install did not produce /boot/vmlinuz-${KVER}" >&2
+          ls -la "${MNT}/boot/" >&2 || true
+          exit 1
+        fi
+        chroot "${MNT}" dracut -f "/boot/initramfs-${KVER}.img" "${KVER}"
       args:
         executable: /bin/bash
       changed_when: true
