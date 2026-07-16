@@ -108,6 +108,23 @@
         dest: "{{ fedora_mnt }}/etc/hostname"
         mode: "0644"
 
+    - name: Ensure /etc/os-release points at Fedora identity data
+      ansible.builtin.file:
+        src: "../usr/lib/os-release"
+        dest: "{{ fedora_mnt }}/etc/os-release"
+        state: link
+        force: true
+
+    - name: Ensure /etc/redhat-release exists for guest inspection
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if [ -e "{{ fedora_mnt }}/etc/fedora-release" ] && [ ! -e "{{ fedora_mnt }}/etc/redhat-release" ]; then
+          ln -s fedora-release "{{ fedora_mnt }}/etc/redhat-release"
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: false
+
     - name: Set Fedora machine-id empty for first boot regenerate
       ansible.builtin.copy:
         content: ""

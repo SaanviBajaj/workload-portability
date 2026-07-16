@@ -4,7 +4,7 @@ Builds the same **todo-db** / **todo-web** demo as the Alpine track, but with a 
 
 | | Alpine (`vmware-minimal`) | **Fedora (this guide)** |
 |---|---|---|
-| Guest OS | Alpine Linux | Fedora 41 |
+| Guest OS | Alpine Linux | Fedora 40 |
 | MTV / virt-v2v | **Not supported** | **Supported** |
 | Disk size | ~768 MB | **~1.1 GiB** |
 | Init | OpenRC | systemd-networkd |
@@ -13,6 +13,8 @@ Builds the same **todo-db** / **todo-web** demo as the Alpine track, but with a 
 **Size tricks:** no firmware packages, `kernel-core` + `kernel-modules` only (GPU/media/sound modules stripped), systemd-networkd instead of NetworkManager, docs/locales removed after install.
 
 Fedora + Podman still needs ~560 MiB for the OS install alone, so disks cannot match Alpine’s 768 MB. **1152 MB** is the practical minimum for this track (1024 MB leaves too little free space after first boot for MTV).
+
+The image is built to look like a normal Fedora installation for `virt-v2v` inspection: Fedora release identity packages are installed explicitly, standard `/etc/os-release` and `/etc/redhat-release` files are present, and core kernel modules are included.
 
 **Do not run this track and Alpine/bootc at the same time** — they use the same VM names (`todo-db`, `todo-web`).
 

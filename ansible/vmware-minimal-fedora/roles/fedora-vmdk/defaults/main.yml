@@ -14,10 +14,14 @@ fedora_vmdk: "{{ fedora_output_dir }}/disk.vmdk"
 
 # Intentionally tiny — no NetworkManager, no firmware, no netavark (host networking only)
 fedora_common_packages:
+  - fedora-release
+  - fedora-release-identity-basic
+  - rpm
   - systemd
   - systemd-udev
   - systemd-networkd
   - kernel-core
+  - kernel-modules-core
   - kernel-modules
   - grub2-pc
   - grub2-tools
