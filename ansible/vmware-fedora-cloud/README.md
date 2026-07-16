@@ -1,6 +1,6 @@
 # VMware Fedora Cloud Base track (MTV-friendly)
 
-Builds two **Fedora 43** VMs from the official **Cloud Base Generic** QCOW2, customizes them with `virt-customize`, repacks each disk to **`disk_mb` (default 2048)**, uploads streamOptimized VMDKs under **`Workload-Portability/`**, and wires the todo demo so web ↔ db talk and the UI is reachable via the bastion.
+Builds two **Fedora 43** VMs from the official **Cloud Base Generic** QCOW2: customize with `virt-customize`, sparsify, convert to streamOptimized VMDK, deploy under **`Workload-Portability/`**, wire web ↔ db, expose the UI via the bastion.
 
 | VM | Role |
 |----|------|
@@ -9,11 +9,11 @@ Builds two **Fedora 43** VMs from the official **Cloud Base Generic** QCOW2, cus
 
 **Run on the bastion.** Same VM names as Alpine/bootc — do not run tracks concurrently.
 
-| Track | Guest | Typical provisioned size | MTV / virt-v2v |
-|-------|-------|--------------------------|----------------|
-| `vmware-bootc` | CentOS Stream 9 bootc | ~1.7 GB | Supported |
-| `vmware-minimal` | Alpine | ~768 MB | **Not** supported |
-| **`vmware-fedora-cloud` (this)** | Fedora 43 Cloud Base | **~2 GiB** provisioned (see size notes) | **Supported** (`fedora64Guest`) |
+| Track | Guest | Typical provisioned size | Build time | MTV / virt-v2v |
+|-------|-------|--------------------------|------------|----------------|
+| `vmware-bootc` | CentOS Stream 9 bootc | **~1.7 GB** | Medium | Supported |
+| `vmware-minimal` | Alpine | **~768 MB** | Fast | **Not** supported |
+| **`vmware-fedora-cloud` (this)** | Fedora 43 Cloud Base | **~5 GiB** stock layout | **Faster** (no tar-repack) | **Supported** |
 
 ---
 
@@ -35,7 +35,7 @@ sudo ansible-playbook cleanup-fedora-cloud-vms.yml -e @credentials.env
 
 Bastion needs: `ansible`, `podman`, and `curl`.
 
-`qemu-img` / `virt-customize` (guestfs) are installed via `dnf` when repos work; otherwise the playbook **builds a local Podman image** (`localhost/wp-fedora-cloud-guestfs:43`) and uses wrappers under `~/fedora-cloud-build/bin/`. First run may take several minutes to pull Fedora and install packages in that image.
+`qemu-img` / `virt-customize` / `virt-sparsify` install via `dnf` when repos work; otherwise the playbook builds a local Podman image (`localhost/wp-fedora-cloud-guestfs:43`) and wrappers under `~/fedora-cloud-build/bin/`.
 
 ---
 
@@ -43,30 +43,30 @@ Bastion needs: `ansible`, `podman`, and `curl`.
 
 1. Downloads **Fedora-Cloud-Base-Generic-43** (cached under `~/fedora-cloud-build/cloud-images/`)
 2. `virt-customize`: install `open-vm-tools`, `qemu-guest-agent`, `podman`; preload container image; enable systemd units; NM DHCP; disable cloud-init network config; volatile journald
-3. **Repacks** to a UEFI GPT disk of size `disk_mb` (ESP + `/boot` + `/` as ext4) — stock Cloud Base is **5 GiB** virtual with a **~1 GiB `/boot`**, so a plain `virt-resize` cannot hit 768 MB
-4. Asserts MTV markers (`ID=fedora`, kernels under `/boot`, vmtools present, free space ≥ `fedora_min_free_mb`)
+3. `virt-sparsify --compress` (optional, default on) — reclaim unused blocks; **keeps stock GPT/btrfs layout**
+4. Asserts MTV markers (`ID=fedora`, kernels, vmtools, `virt-inspector`)
 5. Converts to **streamOptimized** VMDK → `govc` upload → `vm.create` (`fedora64Guest`, **UEFI**)
 6. Discovers `todo-db` IP, bakes `DB_HOST` into the web image, deploys web, forwards bastion **:80** → web
 
-Container images are **preloaded at build time** (quay pulls at first boot are unreliable in the lab). Offline fallback: set `todo_db_image_tar` / `todo_web_image_tar` in `credentials.env`.
+Container images are **preloaded at build time**. Offline fallback: set `todo_db_image_tar` / `todo_web_image_tar` in `credentials.env`.
 
 ---
 
-## Size and MTV notes
+## Size: why ~5 GiB, and why we stopped shrinking
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `disk_mb` | `2048` | Provisioned disk target after repack |
-| `fedora_min_free_mb` | `150` | Build-time free space on `/` (MTV needs ≥100 MB **after** first boot) |
-| `disk_mb_max` | `3072` | Hard ceiling — build refuses to go higher unless you raise this |
+We tried tar-repacking Cloud Base down toward 768–2 GiB. That path was a bad fit:
 
-Cloud Base root is **btrfs** (often compressed). `virt-df` may show ~840 MiB used, but **uncompressed tars of `/`+`/var`+`/home`** (needed because `/var` is a separate subvolume for Podman storage) plus EFI/`/boot` and MTV free space typically need a **~2 GiB** disk.
+| Approach | What happened |
+|----------|----------------|
+| Tar `/` to new ext4 disk | Btrfs **compressed** ~840 MiB → **uncompressed** ~1.6 GiB; + stock `/boot` overhead; **10+ min**; inspection breakage |
+| `virt-resize` only | Stock **`/boot` is ~1–2 GiB** and is not the last partition, so you still floor near **~3 GiB** |
+| **Keep stock Cloud Base (current)** | **~5 GiB provisioned**, stock layout MTV trusts, **much faster** |
 
-If payload still cannot fit, the repack step **fails with measured tar sizes** and suggests a larger `disk_mb` (up to `disk_mb_max`). It will **not** silently invent another custom rootfs.
+**Datastore tip:** streamOptimized VMDK is sparse — **file size / used space** tracks written data (~1–2 GiB typical), even though vSphere shows **5 GiB capacity**.
 
-**600–768 MB** is not achievable with stock Cloud Base + preloaded images.
+If you need a **smaller provisioned** MTV-friendly disk, use **`ansible/vmware-bootc/`** (~1.7 GiB) instead of fighting Cloud Base.
 
-**Not used (by design):** Fedora CoreOS (~10 GiB), Anaconda Minimal ISO, or the scrapped `dnf --installroot` track.
+**Not used:** Fedora CoreOS (~10 GiB), Anaconda Minimal ISO, custom `dnf --installroot`, or tar-repack.
 
 ### MTV checklist
 
@@ -75,7 +75,7 @@ If payload still cannot fit, the repack step **fails with measured tar sizes** a
 - VMware Tools running (`open-vm-tools`)
 - `/etc/os-release` has `ID=fedora`
 - `/boot` has `vmlinuz-*` + initramfs
-- ≥100 MB free on `/` when MTV inspects the disk (we reserve 150 MB at build + volatile journal)
+- Enough free space on `/` for virt-v2v (≥100 MB after first boot; volatile journald helps)
 
 ---
 
@@ -86,7 +86,7 @@ Copy from `credentials.env.example`. Required:
 - `govc_url`, `govc_username`, `govc_password`, `govc_datastore`
 - `vm_network`, `vm_folder`
 
-Optional: `db01_static_ip` / `web01_static_ip` / `db_host` if Tools IP discovery fails; offline image tars.
+Optional: `db01_static_ip` / `web01_static_ip` / `db_host`; offline image tars; `-e fedora_sparsify=false` to skip sparsify.
 
 ---
 

@@ -51,12 +51,6 @@
     dest: "{{ fedora_artifacts_dir }}/guest-setup.sh"
     mode: "0755"
 
-- name: Render disk repack script
-  ansible.builtin.template:
-    src: repack-disk.sh.j2
-    dest: "{{ fedora_build_dir }}/repack-disk.sh"
-    mode: "0755"
-
 - name: Pull container image on bastion for VMDK embedding
   ansible.builtin.command:
     cmd: podman pull {{ fedora_embed_image }}

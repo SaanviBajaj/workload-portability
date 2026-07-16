@@ -1,17 +1,35 @@
 ---
-- name: Run Cloud Base disk repack to disk_mb
+# After customize we keep the stock Cloud Base layout (btrfs, GPT, ~5 GiB).
+# Tar-repack was slow and expanded compressed btrfs data; virt-resize cannot
+# shrink the ~1–2 GiB /boot partition. Prefer a fast sparsify + convert path.
+
+- name: Optional sparsify of customized Cloud Base image
   ansible.builtin.command:
     cmd: >-
-      {{ fedora_build_dir }}/repack-disk.sh
-      {{ fedora_qcow_work }}
+      virt-sparsify --compress
+      --format qcow2 {{ fedora_qcow_work }}
       {{ fedora_qcow_repacked }}
-      {{ disk_mb }}
-      {{ fedora_min_free_mb }}
-      {{ fedora_efi_mb }}
-      {{ fedora_boot_mb }}
   environment:
     PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
-  register: fedora_repack
+  register: fedora_sparsify
   async: 3600
   poll: 15
+  when: fedora_sparsify | bool
+
+- name: Use customized qcow2 as final image when sparsify is disabled
+  ansible.builtin.command:
+    cmd: cp -f {{ fedora_qcow_work }} {{ fedora_qcow_repacked }}
+  when: not (fedora_sparsify | bool)
+
+- name: Report final qcow2 size
+  ansible.builtin.command:
+    cmd: qemu-img info {{ fedora_qcow_repacked }}
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+  register: fedora_final_qcow_info
+  changed_when: false
+
+- name: Show final qcow2 info
+  ansible.builtin.debug:
+    msg: "{{ fedora_final_qcow_info.stdout_lines }}"

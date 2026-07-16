@@ -28,9 +28,8 @@ fedora_web_packages:
   - shadow-utils
   - sudo
 
-# Repack partition layout (UEFI-only; no BIOS boot partition)
-fedora_efi_mb: 50
-fedora_boot_mb: 256
+# Compress unused blocks in the qcow2 before VMDK convert (faster than tar-repack)
+fedora_sparsify: true
 
 fedora_vmdk_subformat: streamOptimized
 

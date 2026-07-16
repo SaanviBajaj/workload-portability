@@ -1,11 +1,9 @@
 ---
-# Explicit -m mounts: libguestfs "inspection" can fail on freshly assembled
-# disks even when files are present; MTV still needs virt-inspector (checked
-# in repack-disk.sh). These asserts read partitions directly.
+# Stock Cloud Base layout is inspectable; use normal virt-* inspection APIs.
 
-- name: Read os-release from repacked image root partition
+- name: Read os-release from final image
   ansible.builtin.command:
-    cmd: virt-cat -a {{ fedora_qcow_repacked }} -m /dev/sda3:/ /etc/os-release
+    cmd: virt-cat -a {{ fedora_qcow_repacked }} /etc/os-release
   environment:
     PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
@@ -20,9 +18,9 @@
       /etc/os-release missing ID=fedora — MTV will reject this guest.
       Got: {{ fedora_os_release.stdout }}
 
-- name: List /boot kernels in repacked image
+- name: List /boot contents in final image
   ansible.builtin.command:
-    cmd: virt-ls -a {{ fedora_qcow_repacked }} -m /dev/sda2:/ /
+    cmd: virt-ls -a {{ fedora_qcow_repacked }} /boot
   environment:
     PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
     LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
@@ -41,9 +39,9 @@
 - name: Check open-vm-tools / vmtoolsd presence
   ansible.builtin.shell: |
     set -o pipefail
-    virt-cat -a {{ fedora_qcow_repacked }} -m /dev/sda3:/ /usr/lib/systemd/system/vmtoolsd.service 2>/dev/null \
-      || virt-ls -a {{ fedora_qcow_repacked }} -m /dev/sda3:/ /usr/bin | grep -E 'vmtoolsd|vmware-toolbox' \
-      || virt-ls -a {{ fedora_qcow_repacked }} -m /dev/sda3:/ /usr/sbin | grep -E 'vmtoolsd'
+    virt-cat -a {{ fedora_qcow_repacked }} /usr/lib/systemd/system/vmtoolsd.service 2>/dev/null \
+      || virt-ls -a {{ fedora_qcow_repacked }} /usr/bin | grep -E 'vmtoolsd|vmware-toolbox' \
+      || virt-ls -a {{ fedora_qcow_repacked }} /usr/sbin | grep -E 'vmtoolsd'
   args:
     executable: /bin/bash
   environment:
@@ -53,7 +51,7 @@
   changed_when: false
   failed_when: fedora_vmtools_check.rc != 0
 
-- name: Confirm virt-inspector still sees a Fedora guest
+- name: Confirm virt-inspector sees a Fedora guest
   ansible.builtin.command:
     cmd: virt-inspector -a {{ fedora_qcow_repacked }}
   environment:
@@ -70,6 +68,22 @@
       virt-inspector did not report a Fedora guest — MTV conversion will fail.
       Output: {{ fedora_inspector.stdout }}
 
+- name: Check free space on root for MTV headroom
+  ansible.builtin.shell: |
+    set -o pipefail
+    virt-df -h -a {{ fedora_qcow_repacked }}
+  args:
+    executable: /bin/bash
+  environment:
+    PATH: "{{ work_base }}/bin:{{ ansible_env.PATH }}"
+    LIBGUESTFS_BACKEND: "{{ libguestfs_backend }}"
+  register: fedora_df
+  changed_when: false
+
+- name: Show free space report
+  ansible.builtin.debug:
+    msg: "{{ fedora_df.stdout_lines }}"
+
 - name: Report provisioned disk size
   ansible.builtin.command:
     cmd: qemu-img info --output=json {{ fedora_qcow_repacked }}
@@ -81,10 +95,11 @@
 - name: Parse virtual size from qcow2
   ansible.builtin.set_fact:
     fedora_virtual_bytes: "{{ (fedora_qcow_info.stdout | from_json)['virtual-size'] }}"
+    fedora_virtual_gib: "{{ (((fedora_qcow_info.stdout | from_json)['virtual-size'] | int) / (1024*1024*1024)) | round(2) }}"
 
-- name: Assert provisioned size matches disk_mb
-  ansible.builtin.assert:
-    that:
-      - (fedora_virtual_bytes | int) <= ((disk_mb | int) * 1024 * 1024 + 1048576)
-    fail_msg: >-
-      Repacked virtual size {{ fedora_virtual_bytes }} bytes exceeds disk_mb={{ disk_mb }}.
+- name: Report Cloud Base provisioned size
+  ansible.builtin.debug:
+    msg: >-
+      Final guest virtual size ≈ {{ fedora_virtual_gib }} GiB
+      (stock Fedora Cloud Base layout — not tar-repacked).
+      streamOptimized VMDK file size will be closer to used data.

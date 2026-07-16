@@ -6,13 +6,6 @@
     - fedora_role == 'web'
     - db_host | length == 0
 
-- name: Validate disk_mb against absolute ceiling
-  ansible.builtin.fail:
-    msg: >-
-      disk_mb={{ disk_mb }} exceeds disk_mb_max={{ disk_mb_max }}.
-      Raise disk_mb_max only if you intentionally accept larger provisioned disks.
-  when: disk_mb | int > disk_mb_max | int
-
 - name: Ensure Fedora Cloud build directories exist
   ansible.builtin.file:
     path: "{{ item }}"
@@ -43,11 +36,11 @@
 - name: Customize Cloud Base image with virt-customize
   ansible.builtin.include_tasks: customize.yml
 
-- name: Repack into provisioned disk_mb with UEFI+boot+root layout
+- name: Sparsify customized image (keep stock Cloud Base layout)
   ansible.builtin.include_tasks: repack.yml
 
 - name: Assert MTV / virt-v2v guest markers
   ansible.builtin.include_tasks: assert-mtv.yml
 
-- name: Convert repacked qcow2 to streamOptimized VMDK
+- name: Convert qcow2 to streamOptimized VMDK
   ansible.builtin.include_tasks: convert-vmdk.yml

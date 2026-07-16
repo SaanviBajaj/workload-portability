@@ -14,10 +14,8 @@ guestfs_wrapper_tools:
   - qemu-img
   - virt-customize
   - virt-df
-  - virt-tar-out
-  - virt-tar-in
   - virt-cat
   - virt-ls
   - virt-inspector
-  - virt-filesystems
+  - virt-sparsify
   - guestfish
