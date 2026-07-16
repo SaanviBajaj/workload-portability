@@ -1,0 +1,494 @@
+---
+- name: Require DB host when building todo-web image
+  ansible.builtin.fail:
+    msg: "db_host must be set when fedora_role is web"
+  when:
+    - fedora_role == 'web'
+    - db_host | length == 0
+
+- name: Build Fedora package list for image role
+  ansible.builtin.set_fact:
+    fedora_install_packages: >-
+      {{ fedora_common_packages +
+         (fedora_web_packages if fedora_role == 'web' else []) }}
+
+- name: Ensure Fedora build directory exists for wrapper script
+  ansible.builtin.file:
+    path: "{{ fedora_build_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Deploy qemu-img wrapper script
+  ansible.builtin.template:
+    src: qemu-img-wrapper.j2
+    dest: "{{ fedora_build_dir }}/qemu-img-wrapper"
+    mode: "0755"
+
+- name: Set qemu-img command path
+  ansible.builtin.set_fact:
+    fedora_qemu_img: "{{ fedora_build_dir }}/qemu-img-wrapper"
+
+- name: Build Fedora VMDK image
+  block:
+    - name: Ensure Fedora build directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ fedora_build_dir }}"
+        - "{{ fedora_output_dir }}"
+        - "{{ fedora_mnt }}"
+
+    - name: Remove previous Fedora disk artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ fedora_raw }}"
+        - "{{ fedora_vmdk }}"
+
+    - name: Create raw disk image
+      ansible.builtin.command:
+        cmd: "{{ fedora_qemu_img }} create -f raw {{ fedora_raw }} {{ disk_mb }}M"
+
+    - name: Partition raw disk with MBR layout
+      ansible.builtin.shell: |
+        set -o pipefail
+        printf 'label: dos\n,,L\n' | sfdisk -f {{ fedora_raw }}
+      args:
+        executable: /bin/bash
+
+    - name: Attach loop device to raw disk
+      ansible.builtin.command:
+        cmd: losetup -Pf --show {{ fedora_raw }}
+      register: fedora_loop_setup
+      changed_when: true
+
+    - name: Record loop device paths
+      ansible.builtin.set_fact:
+        fedora_loop: "{{ fedora_loop_setup.stdout | trim }}"
+        fedora_loop_part: "{{ fedora_loop_setup.stdout | trim }}p1"
+
+    - name: Format Fedora root partition
+      ansible.builtin.command:
+        cmd: mkfs.ext4 -F -L fedora-root {{ fedora_loop_part }}
+
+    - name: Mount Fedora root partition
+      ansible.builtin.command:
+        cmd: mount -t ext4 {{ fedora_loop_part }} {{ fedora_mnt }}
+
+    - name: Bootstrap Fedora base rootfs with dnf installroot
+      ansible.builtin.command:
+        cmd: >-
+          {{ fedora_podman_run_privileged }}
+          -v {{ fedora_mnt }}:/mnt
+          -v /etc/resolv.conf:/etc/resolv.conf:ro
+          {{ fedora_image }}
+          dnf -y --installroot=/mnt --releasever={{ fedora_version }}
+          --setopt=install_weak_deps=False
+          --setopt=tsflags=nodocs
+          --exclude={{ fedora_dnf_exclude | join(',') }}
+          install {{ fedora_install_packages | join(' ') }}
+      register: fedora_dnf_install
+      changed_when: true
+
+    - name: Set Fedora hostname
+      ansible.builtin.copy:
+        content: "{{ fedora_hostname }}\n"
+        dest: "{{ fedora_mnt }}/etc/hostname"
+        mode: "0644"
+
+    - name: Set Fedora machine-id empty for first boot regenerate
+      ansible.builtin.copy:
+        content: ""
+        dest: "{{ fedora_mnt }}/etc/machine-id"
+        mode: "0444"
+
+    - name: Deploy Fedora fstab for root filesystem
+      ansible.builtin.template:
+        src: fstab.j2
+        dest: "{{ fedora_mnt }}/etc/fstab"
+        mode: "0644"
+
+    - name: Ensure modules-load.d directory exists
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/etc/modules-load.d"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy VMware NIC kernel modules for boot
+      ansible.builtin.template:
+        src: modules-load.conf.j2
+        dest: "{{ fedora_mnt }}/etc/modules-load.d/vmware.conf"
+        mode: "0644"
+
+    - name: Deploy Podman sysctl settings (ip_forward for web iptables redirect)
+      ansible.builtin.template:
+        src: podman-sysctl.conf.j2
+        dest: "{{ fedora_mnt }}/etc/sysctl.d/99-podman.conf"
+        mode: "0644"
+
+    - name: Ensure systemd-networkd directory exists
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/etc/systemd/network"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy systemd-networkd eth0 config
+      ansible.builtin.template:
+        src: eth0.network.j2
+        dest: "{{ fedora_mnt }}/etc/systemd/network/20-eth0.network"
+        mode: "0644"
+
+    - name: Ensure local bin directory exists
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/usr/local/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy DNS helper for DHCP environments
+      ansible.builtin.template:
+        src: ensure-dns.sh.j2
+        dest: "{{ fedora_mnt }}/usr/local/bin/ensure-dns"
+        mode: "0755"
+
+    - name: Deploy Podman network prepare helper
+      ansible.builtin.template:
+        src: prepare-podman-net.sh.j2
+        dest: "{{ fedora_mnt }}/usr/local/bin/prepare-podman-net"
+        mode: "0755"
+
+    - name: Deploy todo-db container start script
+      ansible.builtin.template:
+        src: todo-db-start.sh.j2
+        dest: "{{ fedora_mnt }}/usr/local/bin/todo-db-start"
+        mode: "0755"
+      when: fedora_role == 'db'
+
+    - name: Deploy todo-db systemd unit
+      ansible.builtin.template:
+        src: todo-db.service.j2
+        dest: "{{ fedora_mnt }}/etc/systemd/system/todo-db.service"
+        mode: "0644"
+      when: fedora_role == 'db'
+
+    - name: Deploy todo-web container start script
+      ansible.builtin.template:
+        src: todo-web-start.sh.j2
+        dest: "{{ fedora_mnt }}/usr/local/bin/todo-web-start"
+        mode: "0755"
+      when: fedora_role == 'web'
+
+    - name: Deploy todo-web systemd unit
+      ansible.builtin.template:
+        src: todo-web.service.j2
+        dest: "{{ fedora_mnt }}/etc/systemd/system/todo-web.service"
+        mode: "0644"
+      when: fedora_role == 'web'
+
+    - name: Create demo SSH user in Fedora rootfs
+      ansible.builtin.command:
+        cmd: >-
+          {{ fedora_podman_run }} -v {{ fedora_mnt }}:/mnt {{ fedora_image }}
+          chroot /mnt useradd -m -s /bin/bash {{ web_ssh_user }}
+      when: fedora_role == 'web'
+
+    - name: Set demo SSH user password
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '{{ web_ssh_user }}:{{ web_ssh_password }}' | \
+          {{ fedora_podman_run }} -i -v {{ fedora_mnt }}:/mnt {{ fedora_image }} \
+          chroot /mnt chpasswd
+      args:
+        executable: /bin/bash
+      when: fedora_role == 'web'
+      no_log: true
+
+    - name: Add demo user to wheel group
+      ansible.builtin.command:
+        cmd: >-
+          {{ fedora_podman_run }} -v {{ fedora_mnt }}:/mnt {{ fedora_image }}
+          chroot /mnt usermod -aG wheel {{ web_ssh_user }}
+      when: fedora_role == 'web'
+
+    - name: Allow passwordless sudo for wheel group
+      ansible.builtin.copy:
+        content: "%wheel ALL=(ALL) NOPASSWD: ALL\n"
+        dest: "{{ fedora_mnt }}/etc/sudoers.d/99-wheel"
+        mode: "0440"
+      when: fedora_role == 'web'
+
+    - name: Ensure sshd config drop-in directory exists
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/etc/ssh/sshd_config.d"
+        state: directory
+        mode: "0755"
+      when: fedora_role == 'web'
+
+    - name: Enable SSH password authentication for demo user
+      ansible.builtin.template:
+        src: sshd-demo.conf.j2
+        dest: "{{ fedora_mnt }}/etc/ssh/sshd_config.d/99-demo.conf"
+        mode: "0644"
+      when: fedora_role == 'web'
+
+    - name: Generate SSH host keys for first boot
+      ansible.builtin.command:
+        cmd: >-
+          {{ fedora_podman_run }} -v {{ fedora_mnt }}:/mnt {{ fedora_image }}
+          chroot /mnt ssh-keygen -A
+      when: fedora_role == 'web'
+
+    - name: Set container image to embed in Fedora VMDK
+      ansible.builtin.set_fact:
+        fedora_embed_image: "{{ todo_db_image if fedora_role == 'db' else todo_web_image }}"
+        fedora_embed_tar: "{{ 'todo-db' if fedora_role == 'db' else 'todo-web' }}.tar"
+        fedora_embed_tar_path: "{{ todo_db_image_tar if fedora_role == 'db' else todo_web_image_tar }}"
+
+    - name: Pull container image on bastion for VMDK embedding
+      ansible.builtin.command:
+        cmd: podman pull {{ fedora_embed_image }}
+      register: fedora_embed_pull
+      failed_when: false
+      changed_when: fedora_embed_pull.rc == 0
+
+    - name: Save pulled container image archive for VMDK embedding
+      ansible.builtin.command:
+        cmd: podman save -o {{ fedora_build_dir }}/{{ fedora_embed_tar }} {{ fedora_embed_image }}
+      when: fedora_embed_pull.rc == 0
+      changed_when: true
+
+    - name: Check for offline container image archive on bastion
+      ansible.builtin.stat:
+        path: "{{ fedora_embed_tar_path }}"
+      register: fedora_offline_tar
+      when: fedora_embed_pull.rc != 0
+
+    - name: Stage offline container image archive for VMDK embedding
+      ansible.builtin.copy:
+        src: "{{ fedora_embed_tar_path }}"
+        dest: "{{ fedora_build_dir }}/{{ fedora_embed_tar }}"
+        remote_src: true
+        mode: "0644"
+      when:
+        - fedora_embed_pull.rc != 0
+        - fedora_offline_tar.stat.exists
+
+    - name: Fail when container image is unavailable for embedding
+      ansible.builtin.fail:
+        msg: >-
+          Could not pull {{ fedora_embed_image }} (quay.io often denies pulls in lab environments).
+          On a machine that can reach quay.io, run:
+            podman pull {{ fedora_embed_image }}
+            podman save -o {{ fedora_embed_tar }} {{ fedora_embed_image }}
+          Copy {{ fedora_embed_tar }} to the bastion at {{ fedora_embed_tar_path }}, then re-run the playbook.
+      when:
+        - fedora_embed_pull.rc != 0
+        - not (fedora_offline_tar.stat.exists | default(false))
+
+    - name: Ensure container image bind-mount point exists in Fedora rootfs
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/var/images"
+        state: directory
+        mode: "0755"
+
+    - name: Create placeholder for bind-mounted container image tar
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/var/images/{{ fedora_embed_tar }}"
+        state: touch
+        mode: "0644"
+
+    - name: Bind mount container image tar from bastion into Fedora rootfs
+      ansible.builtin.command:
+        cmd: mount --bind {{ fedora_build_dir }}/{{ fedora_embed_tar }} {{ fedora_mnt }}/var/images/{{ fedora_embed_tar }}
+
+    - name: Ensure chroot mount points exist for Podman image load
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - dev
+        - proc
+        - sys
+        - run
+
+    - name: Bind mount host paths into Fedora chroot
+      ansible.builtin.command:
+        cmd: mount --bind /{{ item }} {{ fedora_mnt }}/{{ item }}
+      loop:
+        - dev
+        - proc
+        - sys
+
+    - name: Bind mount bastion temp dir for Podman load scratch space
+      ansible.builtin.command:
+        cmd: mount --bind /tmp {{ fedora_mnt }}/var/tmp
+
+    - name: Load container image into Fedora Podman storage
+      ansible.builtin.command:
+        cmd: chroot {{ fedora_mnt }} podman load -i /var/images/{{ fedora_embed_tar }}
+
+    - name: Unmount bastion temp dir from Fedora rootfs
+      ansible.builtin.command:
+        cmd: umount {{ fedora_mnt }}/var/tmp
+      failed_when: false
+
+    - name: Unmount container image tar from Fedora rootfs
+      ansible.builtin.command:
+        cmd: umount {{ fedora_mnt }}/var/images/{{ fedora_embed_tar }}
+      failed_when: false
+
+    - name: Remove container image bind-mount staging directory from Fedora rootfs
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/var/images"
+        state: absent
+
+    - name: Remove container image archive from bastion build dir
+      ansible.builtin.file:
+        path: "{{ fedora_build_dir }}/{{ fedora_embed_tar }}"
+        state: absent
+
+    - name: Enable systemd services in Fedora chroot
+      ansible.builtin.command:
+        cmd: chroot {{ fedora_mnt }} systemctl enable {{ item }}
+      loop: >-
+        {{ ['systemd-networkd', 'vmtoolsd'] +
+           (['todo-db'] if fedora_role == 'db' else []) +
+           (['sshd', 'todo-web'] if fedora_role == 'web' else []) }}
+
+    - name: Disable SELinux in Fedora rootfs config (matches grub selinux=0)
+      ansible.builtin.lineinfile:
+        path: "{{ fedora_mnt }}/etc/selinux/config"
+        regexp: '^SELINUX='
+        line: 'SELINUX=disabled'
+        create: false
+      failed_when: false
+
+    - name: Strip firmware, docs, locales, and package caches to fit ~768 MB
+      ansible.builtin.shell: |
+        set -euo pipefail
+        MNT="{{ fedora_mnt }}"
+        rm -rf "${MNT}/usr/lib/firmware" \
+               "${MNT}/lib/firmware" \
+               "${MNT}/usr/share/doc" \
+               "${MNT}/usr/share/man" \
+               "${MNT}/usr/share/info" \
+               "${MNT}/usr/share/gtk-doc" \
+               "${MNT}/var/cache/dnf" \
+               "${MNT}/var/lib/dnf" \
+               "${MNT}/var/cache/yum" \
+               "${MNT}/usr/lib/modules/"*/kernel/drivers/gpu \
+               "${MNT}/usr/lib/modules/"*/kernel/drivers/media \
+               "${MNT}/usr/lib/modules/"*/kernel/drivers/infiniband \
+               "${MNT}/usr/lib/modules/"*/kernel/drivers/isdn \
+               "${MNT}/usr/lib/modules/"*/kernel/drivers/bluetooth \
+               "${MNT}/usr/lib/modules/"*/kernel/sound \
+               "${MNT}/usr/lib/modules/"*/kernel/drivers/usb/gadget \
+               "${MNT}/usr/lib/modules/"*/kernel/drivers/staging || true
+        # Keep only C/C.utf8 locales
+        if [ -d "${MNT}/usr/lib/locale" ]; then
+          find "${MNT}/usr/lib/locale" -mindepth 1 -maxdepth 1 \
+            ! -name 'C' ! -name 'C.*' ! -name 'POSIX' -exec rm -rf {} +
+        fi
+        if [ -d "${MNT}/usr/share/locale" ]; then
+          find "${MNT}/usr/share/locale" -mindepth 1 -maxdepth 1 \
+            ! -name 'en' ! -name 'en_US' ! -name 'C' -exec rm -rf {} +
+        fi
+        # Drop unused static libs / python caches if present
+        find "${MNT}" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
+        sync
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Measure free space on Fedora root filesystem
+      ansible.builtin.shell: |
+        set -o pipefail
+        df -BM {{ fedora_mnt }} | awk 'NR==2 { gsub(/M$/, "", $4); print $4 }'
+      args:
+        executable: /bin/bash
+      register: fedora_root_free_mb
+      changed_when: false
+
+    - name: Fail when root filesystem lacks space for OpenShift migration
+      ansible.builtin.fail:
+        msg: >-
+          Fedora rootfs for {{ fedora_role }} has only {{ fedora_root_free_mb.stdout | trim }} MB free on '/';
+          need at least {{ fedora_min_free_mb }} MB for OpenShift Virtualization / MTV guest conversion.
+          Increase disk_mb (currently {{ disk_mb }}) in group_vars/all.yml and rebuild.
+      when: (fedora_root_free_mb.stdout | default('0') | trim | int) < (fedora_min_free_mb | int)
+
+    - name: Report Fedora root filesystem free space
+      ansible.builtin.debug:
+        msg: >-
+          Fedora {{ fedora_role }} rootfs has {{ fedora_root_free_mb.stdout | trim }} MB free
+          (minimum {{ fedora_min_free_mb }} MB required for migration).
+
+    - name: Configure GRUB defaults for Fedora rootfs
+      ansible.builtin.template:
+        src: grub-default.j2
+        dest: "{{ fedora_mnt }}/etc/default/grub"
+        mode: "0644"
+
+    - name: Install GRUB bootloader in Fedora chroot
+      ansible.builtin.command:
+        cmd: chroot {{ fedora_mnt }} grub2-install --target=i386-pc --boot-directory=/boot {{ fedora_loop }}
+
+    - name: Generate GRUB configuration in Fedora chroot
+      ansible.builtin.command:
+        cmd: chroot {{ fedora_mnt }} grub2-mkconfig -o /boot/grub2/grub.cfg
+
+    - name: Sync disk before unmount
+      ansible.builtin.command:
+        cmd: sync
+
+    - name: Convert raw disk to VMware-compatible VMDK
+      ansible.builtin.command:
+        cmd: >-
+          {{ fedora_qemu_img }} convert -f raw -O vmdk
+          -o subformat={{ fedora_vmdk_subformat }}
+          {{ fedora_raw }} {{ fedora_vmdk }}
+
+    - name: Show Fedora VMDK size
+      ansible.builtin.command:
+        cmd: du -h {{ fedora_vmdk }}
+      register: fedora_vmdk_size
+      changed_when: false
+
+    - name: Report Fedora VMDK build result
+      ansible.builtin.debug:
+        msg: "Built {{ fedora_vmdk }} ({{ fedora_vmdk_size.stdout | trim }})"
+
+  always:
+    - name: Unmount container image tar from Fedora rootfs
+      ansible.builtin.command:
+        cmd: umount {{ fedora_mnt }}/var/images/{{ fedora_embed_tar }}
+      failed_when: false
+      when: fedora_embed_tar is defined
+
+    - name: Unmount bastion temp dir from Fedora rootfs
+      ansible.builtin.command:
+        cmd: umount {{ fedora_mnt }}/var/tmp
+      failed_when: false
+
+    - name: Unmount Fedora chroot bind mounts
+      ansible.builtin.command:
+        cmd: umount {{ fedora_mnt }}/{{ item }}
+      loop:
+        - sys
+        - proc
+        - dev
+      failed_when: false
+
+    - name: Unmount Fedora root partition
+      ansible.builtin.command:
+        cmd: umount {{ fedora_mnt }}
+      failed_when: false
+
+    - name: Detach loop device from raw disk
+      ansible.builtin.command:
+        cmd: losetup -d {{ fedora_loop }}
+      when: fedora_loop is defined
+      failed_when: false

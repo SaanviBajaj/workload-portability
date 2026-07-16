@@ -1,0 +1,14 @@
+[Unit]
+Description=Todo web application container
+After=network-online.target vmtoolsd.service sshd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/todo-web-start
+ExecStop=/usr/bin/podman stop todo-web
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target
