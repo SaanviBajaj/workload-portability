@@ -33,13 +33,11 @@ todo_db_image_tar: "{{ work_base }}/todo-db.tar"
 todo_web_image_tar: "{{ work_base }}/todo-web.tar"
 
 # Fedora rootfs build (MTV / OpenShift Virtualization supported guest)
-# Use Fedora 40 by default for a more established virt-v2v/osinfo target than
-# Fedora 41 while keeping the image small and current enough for the demo.
-fedora_version: "40"
+# Fedora 43 is still supported as of mid-2026 (EOL ~Dec 2026). Avoid 40–42 (EOL).
+fedora_version: "43"
 fedora_image: "docker.io/library/fedora:{{ fedora_version }}"
-# ~1.1 GiB: OS + preloaded images fit after strip; headroom for first-boot growth.
-# 768 MiB fails during dnf; 1024 MiB leaves <100 MiB free after Podman/journald at boot.
-disk_mb: 1152
+# ~1.25 GiB: newer Fedora + tools + containers need a bit more than 1152.
+disk_mb: 1280
 # Build-time minimum on '/'. MTV checks the running VM (needs ≥100 MiB free).
 # First boot (Podman overlay, journald, vmtoolsd) typically consumes ~50–70 MiB.
 fedora_min_free_mb: 200

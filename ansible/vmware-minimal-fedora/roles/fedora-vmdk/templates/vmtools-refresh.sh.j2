@@ -16,12 +16,16 @@ done
 /usr/sbin/modprobe fuse 2>/dev/null || true
 /usr/sbin/modprobe vmw_vmci 2>/dev/null || true
 /usr/sbin/modprobe vsock 2>/dev/null || true
+/usr/sbin/modprobe vmw_vsock_vmci_transport 2>/dev/null || true
 
 systemctl restart vmtoolsd.service
-sleep 2
+sleep 3
 if ! systemctl is-active --quiet vmtoolsd.service; then
   echo "WARNING: vmtoolsd not active after refresh" >&2
-  systemctl status vmtoolsd.service >&2 || true
-  # Do not fail boot — playbook retries govc vm.ip
+  systemctl status vmtoolsd.service --no-pager >&2 || true
+  journalctl -u vmtoolsd.service -n 40 --no-pager >&2 || true
+  # Last-resort direct start (clears stuck unit state)
+  /usr/bin/vmtoolsd -n >/var/log/vmtoolsd-fallback.log 2>&1 &
+  sleep 2
   exit 0
 fi

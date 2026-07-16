@@ -1,11 +1,16 @@
 [Unit]
-After=systemd-udevd.service systemd-networkd.service
-Wants=systemd-networkd.service
+# Stripped installroot guests can fail systemd-detect-virt briefly; without this
+# ConditionVirtualization=vmware leaves vmtoolsd inactive and govc cannot see IPs.
+ConditionVirtualization=
 
 [Service]
-# open-vm-tools needs these modules; installroot builds often skip weak deps (fuse)
+# Prefer simple foreground mode so systemd tracks the process reliably
+ExecStart=
+ExecStart=/usr/bin/vmtoolsd -n
+Type=simple
+Restart=always
+RestartSec=3
 ExecStartPre=-/usr/sbin/modprobe fuse
 ExecStartPre=-/usr/sbin/modprobe vmw_vmci
 ExecStartPre=-/usr/sbin/modprobe vsock
-Restart=on-failure
-RestartSec=3
+ExecStartPre=-/usr/sbin/modprobe vmw_vsock_vmci_transport

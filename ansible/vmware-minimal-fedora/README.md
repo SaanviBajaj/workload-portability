@@ -4,17 +4,17 @@ Builds the same **todo-db** / **todo-web** demo as the Alpine track, but with a 
 
 | | Alpine (`vmware-minimal`) | **Fedora (this guide)** |
 |---|---|---|
-| Guest OS | Alpine Linux | Fedora 40 |
+| Guest OS | Alpine Linux | Fedora 43 |
 | MTV / virt-v2v | **Not supported** | **Supported** |
-| Disk size | ~768 MB | **~1.1 GiB** |
+| Disk size | ~768 MB | **~1.25 GiB** |
 | Init | OpenRC | systemd-networkd |
 | Networking | ifupdown + DHCP | systemd-networkd |
 
 **Size tricks:** no firmware packages, `kernel-core` + `kernel-modules` only (GPU/media/sound modules stripped), systemd-networkd instead of NetworkManager, docs/locales removed after install.
 
-Fedora + Podman still needs ~560 MiB for the OS install alone, so disks cannot match Alpine’s 768 MB. **1152 MB** is the practical minimum for this track (1024 MB leaves too little free space after first boot for MTV).
+Fedora + Podman still needs substantial space for the OS install alone, so disks cannot match Alpine’s 768 MB. **1280 MB** is the practical minimum for Fedora 43 on this track.
 
-The image is built to look like a normal Fedora installation for `virt-v2v` inspection: Fedora release identity packages are installed explicitly, `kernel-install` + `dracut` populate `/boot`, and the playbook verifies `/etc/os-release`, RPM metadata, `vmlinuz`, and `initramfs` before upload.
+The image is built to look like a normal Fedora installation for `virt-v2v` inspection: Fedora release identity packages are installed explicitly, `kernel-install` + `dracut` populate `/boot`, and the playbook verifies `/etc/os-release`, RPM metadata, `vmlinuz`, and `initramfs` before upload. `open-vm-tools` is forced to start even if `systemd-detect-virt` is flaky, so `govc vm.ip` can discover guest addresses.
 
 If MTV still shows **Unsupported operating system detected**, confirm in vSphere that the VM **Guest OS** is **Fedora (64-bit)** / `fedora64Guest`, not `Other Linux`. The deploy playbook sets this on create and updates it on existing VMs.
 
@@ -54,7 +54,7 @@ sudo ansible-playbook cleanup-minimal-vms.yml -e @credentials.env
 
 - 2 vCPU, 4 GiB RAM, BIOS, SCSI
 - Guest ID: `fedora64Guest`
-- Disk: **1152 MB** (~1.1 GiB; build checks ≥200 MB free; MTV needs ≥100 MB after first boot)
+- Disk: **1280 MB** (~1.25 GiB; build checks ≥200 MB free; MTV needs ≥100 MB after first boot)
 
 If the build fails with “needs more space” during dnf or “only X MB free on `/`”, bump `disk_mb` to `1280` or `1536`.
 

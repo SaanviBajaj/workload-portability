@@ -127,6 +127,18 @@
         dest: "{{ fedora_mnt }}/etc/hostname"
         mode: "0644"
 
+    - name: Assert open-vm-tools binary exists for guest IP discovery
+      ansible.builtin.stat:
+        path: "{{ fedora_mnt }}/usr/bin/vmtoolsd"
+      register: fedora_vmtoolsd_bin
+
+    - name: Fail when open-vm-tools binary is missing
+      ansible.builtin.fail:
+        msg: >-
+          /usr/bin/vmtoolsd is missing from the Fedora rootfs.
+          open-vm-tools did not install correctly; govc vm.ip will fail.
+      when: not fedora_vmtoolsd_bin.stat.exists
+
     - name: Assert Fedora release files exist for virt-v2v inspection
       ansible.builtin.shell: |
         set -euo pipefail

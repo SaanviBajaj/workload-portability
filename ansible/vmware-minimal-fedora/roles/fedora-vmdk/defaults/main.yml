@@ -35,7 +35,9 @@ fedora_common_packages:
   - open-vm-tools
   # Hard deps for vmtoolsd — install_weak_deps=False otherwise skips these
   - fuse
+  - fuse3
   - dbus-broker
+  - kmod
   - util-linux
   - passwd
   - shadow-utils
