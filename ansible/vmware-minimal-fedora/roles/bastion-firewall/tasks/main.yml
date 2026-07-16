@@ -29,6 +29,22 @@
     cmd: firewall-cmd --permanent --add-port={{ bastion_firewall_forward_port }}/tcp
   when: fw_http_port_check.rc != 0
 
+- name: List permanent HTTP forward rules on bastion
+  ansible.builtin.command:
+    cmd: firewall-cmd --permanent --list-forward-ports
+  register: fw_all_forwards
+  changed_when: false
+
+- name: Remove stale bastion HTTP forward rules
+  ansible.builtin.command:
+    cmd: firewall-cmd --permanent --remove-forward-port={{ item }}
+  loop: >-
+    {{ fw_all_forwards.stdout_lines
+       | select('match', '^port=' + bastion_firewall_forward_port | string + ':proto=tcp:.*')
+       | reject('search', 'toaddr=' + todo_web_ip)
+       | list }}
+  when: item | length > 0
+
 - name: Check whether bastion HTTP forward rule exists
   ansible.builtin.command:
     cmd: >-
