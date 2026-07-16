@@ -163,6 +163,36 @@
         dest: "{{ fedora_mnt }}/etc/modules-load.d/vmware.conf"
         mode: "0644"
 
+    - name: Ensure vmtoolsd systemd drop-in directory exists
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/etc/systemd/system/vmtoolsd.service.d"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy vmtoolsd drop-in for module load and restart
+      ansible.builtin.template:
+        src: vmtoolsd-dropin.conf.j2
+        dest: "{{ fedora_mnt }}/etc/systemd/system/vmtoolsd.service.d/99-lab.conf"
+        mode: "0644"
+
+    - name: Ensure local bin directory exists
+      ansible.builtin.file:
+        path: "{{ fedora_mnt }}/usr/local/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy open-vm-tools refresh helper
+      ansible.builtin.template:
+        src: vmtools-refresh.sh.j2
+        dest: "{{ fedora_mnt }}/usr/local/bin/vmtools-refresh"
+        mode: "0755"
+
+    - name: Deploy open-vm-tools refresh systemd unit
+      ansible.builtin.template:
+        src: vmtools-refresh.service.j2
+        dest: "{{ fedora_mnt }}/etc/systemd/system/vmtools-refresh.service"
+        mode: "0644"
+
     - name: Deploy Podman sysctl settings (ip_forward for web iptables redirect)
       ansible.builtin.template:
         src: podman-sysctl.conf.j2
@@ -180,12 +210,6 @@
         src: eth0.network.j2
         dest: "{{ fedora_mnt }}/etc/systemd/network/20-eth0.network"
         mode: "0644"
-
-    - name: Ensure local bin directory exists
-      ansible.builtin.file:
-        path: "{{ fedora_mnt }}/usr/local/bin"
-        state: directory
-        mode: "0755"
 
     - name: Deploy DNS helper for DHCP environments
       ansible.builtin.template:
@@ -394,7 +418,7 @@
       ansible.builtin.command:
         cmd: chroot {{ fedora_mnt }} systemctl enable {{ item }}
       loop: >-
-        {{ ['systemd-networkd', 'vmtoolsd'] +
+        {{ ['dbus-broker', 'systemd-networkd', 'vmtoolsd', 'vmtools-refresh'] +
            (['todo-db'] if fedora_role == 'db' else []) +
            (['sshd', 'todo-web'] if fedora_role == 'web' else []) }}
 

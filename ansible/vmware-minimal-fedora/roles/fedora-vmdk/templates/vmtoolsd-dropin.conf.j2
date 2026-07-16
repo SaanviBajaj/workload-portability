@@ -1,0 +1,11 @@
+[Unit]
+After=systemd-udevd.service systemd-networkd.service
+Wants=systemd-networkd.service
+
+[Service]
+# open-vm-tools needs these modules; installroot builds often skip weak deps (fuse)
+ExecStartPre=-/usr/sbin/modprobe fuse
+ExecStartPre=-/usr/sbin/modprobe vmw_vmci
+ExecStartPre=-/usr/sbin/modprobe vsock
+Restart=on-failure
+RestartSec=3

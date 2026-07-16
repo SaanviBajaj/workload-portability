@@ -1,0 +1,27 @@
+#!/bin/bash
+# Wait for eth0 to get an IP, then restart vmtoolsd so VMware guestInfo
+# (used by govc vm.ip) is published. Without this, tools may start before
+# DHCP completes and never report an address.
+set -euo pipefail
+
+i=0
+while [ "$i" -lt 60 ]; do
+  if ip -4 addr show eth0 2>/dev/null | grep -q 'inet '; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+
+/usr/sbin/modprobe fuse 2>/dev/null || true
+/usr/sbin/modprobe vmw_vmci 2>/dev/null || true
+/usr/sbin/modprobe vsock 2>/dev/null || true
+
+systemctl restart vmtoolsd.service
+sleep 2
+if ! systemctl is-active --quiet vmtoolsd.service; then
+  echo "WARNING: vmtoolsd not active after refresh" >&2
+  systemctl status vmtoolsd.service >&2 || true
+  # Do not fail boot — playbook retries govc vm.ip
+  exit 0
+fi

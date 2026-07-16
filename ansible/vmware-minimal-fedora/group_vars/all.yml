@@ -73,8 +73,8 @@ fedora_static_prefix: 24
 vm_net_adapter: e1000
 
 # Per-attempt wait passed to govc vm.ip -wait=
-vm_ip_wait: "60s"
-vm_ip_retries: 20
+vm_ip_wait: "90s"
+vm_ip_retries: 30
 vm_ip_retry_delay: 10
 
 # Bastion firewalld — forward public HTTP to todo-web
