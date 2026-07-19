@@ -77,13 +77,20 @@ spec:
     insecureEdgeTerminationPolicy: Redirect
 EOF
 
+DNS_IP="$(oc get svc dns-default -n openshift-dns -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
+DB_SVC_IP="$(oc get svc todo-db-svc -n "${PROJECT}" -o jsonpath='{.spec.clusterIP}')"
+
 echo
 echo "Services applied. Next:"
 echo "  1. In MTV UI, create/start a Plan for VMs todo-db + todo-web → namespace ${PROJECT}"
 echo "  2. Use cold migration + skipGuestConversion (raw copy)"
-echo "  3. Prefer a StorageClass that binds for CDI imports (Immediate or known-good CDI path)."
-echo "     Avoid WFFC-only RWX classes that leave PVCs Pending with no populator."
-echo "  4. After VMs Running: oc get endpoints todo-db-svc -n ${PROJECT}"
+echo "  3. Prefer StorageClass px-csi-db (Immediate). Avoid px-rwx-*-kubevirt (WFFC)."
+echo "  4. After VMs Running: oc get endpoints todo-db-svc todo-web-svc -n ${PROJECT}"
 echo "  5. Open the Route: oc get route todo-web -n ${PROJECT}"
 echo
-echo "On boot, todo-env-detect removes /etc/hosts on kvm so CoreDNS resolves todo-db-svc."
+echo "Guest DNS after MTV (todo-env-detect on kvm):"
+echo "  CoreDNS (dns-default): ${DNS_IP:-172.30.0.10}"
+echo "  todo-db-svc ClusterIP:  ${DB_SVC_IP}"
+echo "  If todo-db-svc still does not resolve inside the guest, on todo-web run:"
+echo "    echo TODO_DB_SERVICE_IP=${DB_SVC_IP} >> /etc/todo-workload.env"
+echo "    systemctl restart todo-env-detect todo-web"

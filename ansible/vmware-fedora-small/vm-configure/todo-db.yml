@@ -173,6 +173,8 @@
         content: |
           TODO_DB_SVC_NAME={{ backend_svc_name }}
           TODO_DB_IP={{ todo_db_ip }}
+          CLUSTER_DNS_IP={{ cluster_dns_ip }}
+          CLUSTER_DNS_SEARCH={{ cluster_dns_search }}
       notify: Run environment detection
 
     - name: Enable todo-env-detect at boot

@@ -69,12 +69,14 @@ Bastion needs `ansible`, `podman`, `git`, `rsync`, `curl`. Guestfs tools install
 
 ## Networking (VMware → OpenShift)
 
-App always uses **`DB_HOST=todo-db-svc`**.
+App always uses **`DB_HOST=todo-db-svc`**. Do **not** preserve VMware IPs after MTV.
 
 | Platform | Resolver |
 |----------|----------|
 | VMware | `todo-env-detect` writes `/etc/hosts`: `todo-db-svc` → `todo_db_ip` |
-| OpenShift Virt | env-detect clears that block; **CoreDNS** resolves Service `todo-db-svc` |
+| OpenShift Virt | env-detect clears the VMware hosts block and points the guest at **cluster CoreDNS** (`CLUSTER_DNS_IP`, default `172.30.0.10`) with search domains so `todo-db-svc` resolves to the Service |
+
+Optional fallback if CoreDNS still is not reachable inside the guest: set `TODO_DB_SERVICE_IP=<ClusterIP>` in `/etc/todo-workload.env` and restart `todo-env-detect` (prep script prints the ClusterIP).
 
 ### MTV prep (before Start)
 

@@ -55,6 +55,9 @@ net_interface: ens192
 net_gateway: "198.51.100.1"
 net_dns: "198.51.100.1,8.8.8.8"
 net_prefix: 24
+# OpenShift in-cluster DNS for post-MTV guests (todo-env-detect on kvm)
+cluster_dns_ip: "172.30.0.10"
+cluster_dns_search: "portable-workload.svc.cluster.local svc.cluster.local cluster.local"
 
 db_name: todo
 db_user: todo
